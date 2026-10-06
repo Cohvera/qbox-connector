@@ -229,11 +229,11 @@ def sync_once(config, dry_run=False, force=False):
     if not force and isinstance(state, dict) and state.get("digest") == digest and state.get("target") == target and isinstance(state.get("sent_at"), (int,float)) and 0 <= time.time()-state["sent_at"] < 21600:
         return "unchanged"
     result = read_json(config["destination"] + "/api/integrations/qbox/plenion/projects", payload=payload, key=config["key"])
-    if result.get("accepted") is not True or result.get("snapshotId") != payload["snapshot_id"] or result.get("count") != len(payload["projects"]):
+    if not isinstance(result, dict) or result.get("accepted") is not True or result.get("snapshotId") != payload["snapshot_id"] or result.get("count") != len(payload["projects"]):
         raise SyncError("Cohvera heeft de import niet bevestigd")
     config["state"].parent.mkdir(parents=True, exist_ok=True)
     temporary = config["state"].with_suffix(".tmp")
-    temporary.write_text(json.dumps(dict(digest=digest,target=target,sent_at=time.time())))
+    temporary.write_text(json.dumps(dict(digest=digest,target=target,sent_at=time.time(),count=result["count"],company=result.get("companyCode"))))
     temporary.chmod(0o600)
     temporary.replace(config["state"])
     LOG.info("Cohvera bevestigt %d projecten%s", result["count"], " (reeds verwerkt)" if result.get("duplicate") else "")
@@ -265,11 +265,12 @@ def sync_tv(config, dry_run=False):
             LOG.warning("NAS-bron niet beschikbaar; tv toont geen actuele NAS-meting")
     if dry_run:
         LOG.info("TV-bronnen gelezen: voertuigen %s, NAS %s; niets verstuurd", payload["fleet"] is not None, payload["nas"] is not None)
-        return
+        return {"fleet": payload["fleet"] is not None, "nas": payload["nas"] is not None}
     result = read_json(config["destination"] + "/api/integrations/qbox/tv", payload=payload, key=config["key"])
     if not isinstance(result, dict) or result.get("accepted") is not True:
         raise SyncError("Cohvera heeft de tv-gegevens niet bevestigd")
     LOG.info("Cohvera bevestigt tv-gegevens: voertuigen %s, NAS %s", payload["fleet"] is not None, payload["nas"] is not None)
+    return {"fleet": payload["fleet"] is not None, "nas": payload["nas"] is not None}
 
 
 def main():

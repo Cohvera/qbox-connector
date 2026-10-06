@@ -16,7 +16,9 @@ De ontvangende API, bedrijfsrechten en tv-weergave blijven in [Cohvera/Portal](h
 
 ## Status
 
-De bestaande, geteste connector is overgebracht uit Portal. Dit is **nog geen installeerbare LoxBerry-plugin**. Een pluginconfiguratie, webinstellingen, installatie/update-afhandeling en een release-ZIP moeten nog worden gebouwd. Meerdere onafhankelijke Q-boxen met verschillende doelbedrijven vereisen ook een sleutel-naar-bedrijfskoppeling in Portal; momenteel bepaalt `QBOX_IMPORT_COMPANY` op de Portal-server het doelbedrijf.
+Er is een eerste installeerbare **LoxBerry-plugin (0.1.0)** met configuratiescherm, verbindingscontrole, handmatig synchroniseren, automatische synchronisatie en statusoverzicht. De plugin neemt een bestaande standalone-configuratie over en bewaart instellingen bij een pluginupdate. De code is lokaal getest; installatie op echte LoxBerry-hardware moet nog als pilot worden gecontroleerd.
+
+Meerdere onafhankelijke Q-boxen met verschillende doelbedrijven vereisen ook een sleutel-naar-bedrijfskoppeling in Portal; momenteel bepaalt `QBOX_IMPORT_COMPANY` op de Portal-server het doelbedrijf.
 
 Bestaande Q-box-installaties blijven werken. Het verplaatsen van de broncode wijzigt geen draaiende service of productieconfiguratie.
 
@@ -26,11 +28,14 @@ Vanuit deze repository:
 
 ```sh
 python3 -m unittest discover -s . -p 'test_*.py'
-python3 -m compileall -q qbox_sync.py
+python3 -m compileall -q qbox_sync.py plugin/bin scripts
+python3 scripts/build_plugin.py
 ```
 
 ## Installatie en updates
 
-Volg [de installatiehandleiding](docs/INSTALLATIE.md). Het script blijft op de Q-box op `/opt/cohvera-qbox/qbox_sync.py` staan; instellingen blijven op `/etc/cohvera-qbox/qbox.env`.
+Voor de plugin: volg [LoxBerry installeren en configureren](docs/LOXBERRY.md). Upload het gebouwde `dist/cohvera-qbox-0.1.0.zip` in het pluginbeheer van LoxBerry. Bronbestanden staan in `plugin/`; het pakket neemt `qbox_sync.py` automatisch mee.
+
+Voor de bestaande standalone-installatie: volg [de scripthandleiding](docs/INSTALLATIE.md). Daar staat het script op `/opt/cohvera-qbox/qbox_sync.py`, met instellingen in `/etc/cohvera-qbox/qbox.env`.
 
 Commit nooit echte `.env`-bestanden, API-sleutels, certificaatsleutels, runtime-status of productie-exportbestanden. Kopieer bij een update de bestaande apparaatconfiguratie niet terug naar deze repository.
