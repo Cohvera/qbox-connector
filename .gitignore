@@ -1,0 +1,19 @@
+# Credentials and per-device configuration
+.env
+.env.*
+qbox.env
+*.env
+!qbox.env.example
+*.pem
+*.key
+
+# Runtime state and logs
+state.json
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+
+dist/
