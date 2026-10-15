@@ -1,11 +1,14 @@
 # Cohvera Q-box Connector
 
-Lichte Python-connector die Plenion-data vanaf het bedrijfsnetwerk via HTTPS naar Cohvera stuurt. Python 3.10+; geen pip-pakketten of Docker nodig.
+Lichte Python-connector die Plenion-data vanaf het bedrijfsnetwerk via HTTPS naar Cohvera stuurt. De bestaande JSON-exportconnector gebruikt Python 3.10+ zonder pip-pakketten of Docker. De rechtstreekse HFSQL-serverreader gebruikt Docker met de officiële driver en x86-64-emulatie op ARM64.
 
 ## Wat staat waar?
 
 | Bestand | Functie |
 | --- | --- |
+| `plenion/server/` | Rechtstreekse HFSQL-serverreader, configuratie en diagnose |
+| `plenion/` | Offline verwerking van een bevestigde Plenion-backup |
+| `scripts/build_reader.py` | Bouwt het standalone readerarchief zonder configuratie of data |
 | `qbox_sync.py` | Bron lezen, controleren en synchroniseren |
 | `test_qbox.py` | Tests zonder productieverbinding |
 | `qbox.env.example` | Voorbeeldinstellingen, zonder sleutel |
@@ -29,8 +32,17 @@ Vanuit deze repository:
 ```sh
 python3 -m unittest discover -s . -p 'test_*.py'
 python3 -m compileall -q qbox_sync.py plugin/bin scripts
+python3 -m unittest discover -s plenion -p 'test_*.py'
+python3 -m unittest discover -s plenion/server -p 'test_*.py'
 python3 scripts/build_plugin.py
+python3 scripts/build_reader.py
 ```
+
+## Rechtstreekse Plenion-reader
+
+De nieuwste zelfstandige reader staat in [`plenion/server`](plenion/server/README.md). Bouw met `python3 scripts/build_reader.py`; het pakket komt in `dist/cohvera-plenion-reader.tar.gz`. Installeer het op de Q-box onder `~/plenion-reader`. Deze reader haalt voorlopig projectrecords naar een lokaal JSON-bestand; hij uploadt nog niet naar Portal. Hij is nog niet in de bestaande LoxBerry-plugin geïntegreerd.
+
+De offline-backuproute staat apart beschreven in [`plenion/README.md`](plenion/README.md). De API-wijzigingen die daarvoor nodig zijn, blijven in Portal.
 
 ## Installatie en updates
 

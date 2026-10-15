@@ -1,0 +1,22 @@
+[Unit]
+Description=Cohvera Plenion file processing
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/plenion-incoming
+
+[Service]
+Type=oneshot
+User=loxberry
+Group=loxberry
+WorkingDirectory=/opt/cohvera-plenion
+EnvironmentFile=/etc/cohvera-plenion/secret.env
+Environment=LD_LIBRARY_PATH=/opt/pcsoft
+ExecStart=/usr/bin/python3 /opt/cohvera-plenion/pipeline.py --config /etc/cohvera-plenion/config.json
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/plenion-incoming
+ReadWritePaths=/var/lib/cohvera-plenion
+UMask=0077

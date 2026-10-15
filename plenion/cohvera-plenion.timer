@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a completed Plenion backup every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30
+Unit=cohvera-plenion.service
+
+[Install]
+WantedBy=timers.target

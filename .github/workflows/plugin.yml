@@ -14,6 +14,10 @@ jobs:
       - run: python -m compileall -q qbox_sync.py plugin/bin scripts
       - run: bash -n plugin/preinstall.sh plugin/preroot.sh plugin/postroot.sh plugin/uninstall/uninstall.sh
       - run: node --check plugin/templates/app.js
+      - run: python -m unittest discover -s plenion -p 'test_*.py'
+      - run: python -m unittest discover -s plenion/server -p 'test_*.py'
+      - run: sh -n plenion/server/plenion.sh
+      - run: python scripts/build_reader.py
       - run: python scripts/build_plugin.py
       - uses: actions/upload-artifact@v4
         with:

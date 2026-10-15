@@ -17,3 +17,8 @@ venv/
 .DS_Store
 
 dist/
+
+# Local Plenion reader configuration and captures
+plenion/config.json
+plenion/runtime/
+plenion/server/data/

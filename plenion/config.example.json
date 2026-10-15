@@ -1,0 +1,15 @@
+{
+  "source_dir": "/srv/plenion-incoming",
+  "work_dir": "/var/lib/cohvera-plenion",
+  "completion_file": "backup-complete.json",
+  "required_files": ["REPLACE_FULL_FILE_LIST.fic", "REPLACE_FULL_FILE_LIST.ndx"],
+  "stability_seconds": 120,
+  "allow_empty": false,
+  "portal_url": "https://portal.cohvera.be",
+  "reader": {
+    "iodbc_library": "libiodbc.so.2",
+    "encoding": "utf-8",
+    "connection_template": "DRIVER=/opt/pcsoft/wd300hfo64.so;RepFic={capture}",
+    "projects_sql": "SELECT IDProj, projnr, REPLACE_CUSTOMER, REPLACE_DESCRIPTION, REPLACE_PLANNED_ISO, REPLACE_STATUS_LABEL, REPLACE_ACTIVE_FLAG, REPLACE_CLOSED_FLAG, REPLACE_CURRENT_REVISION_FLAG, VersieNr FROM PROJ ORDER BY IDProj"
+  }
+}
