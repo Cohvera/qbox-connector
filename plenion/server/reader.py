@@ -24,11 +24,17 @@ def status_query(column):
     return f'SELECT IDProj,projnr,PROJ.{column} FROM PROJ ORDER BY IDProj'
 
 
+def columns_query(table):
+    if not isinstance(table, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', table):
+        raise ValueError('Geef een eenvoudige tabelnaam op, bijvoorbeeld BSRT.')
+    return f'SELECT * FROM {table} WHERE 1=0'
+
+
 def describe_columns(lib, stmt, encoding):
     count = C.c_short()
     check(lib, lib.SQLNumResultCols(stmt, C.byref(count)), 'Kolommen tellen', 3, stmt)
     if not 1 <= count.value <= 4096:
-        raise ValueError('Onverwacht aantal kolommen in PROJ.')
+        raise ValueError('Onverwacht aantal tabelkolommen.')
     describe = lib.SQLDescribeCol
     describe.argtypes = [C.c_void_p, C.c_ushort, C.c_void_p, C.c_short,
                          C.POINTER(C.c_short), C.POINTER(C.c_short), C.POINTER(C.c_size_t),
@@ -150,10 +156,13 @@ def driver_check():
     print('OK: officiële HFSQL-driver geladen en ODBC-omgeving aangemaakt.')
 
 
-def read(config, limit, mode="projects", status_column=None):
+def read(config, limit, mode="projects", status_column=None, table="PROJ"):
     if mode not in ("projects", "databases", "tables", "columns", "audit"):
         raise ValueError("Onbekende leesmodus.")
     audit_query = status_query(status_column) if mode == 'audit' else None
+    metadata_query = columns_query(table) if mode == 'columns' else None
+    if mode != 'columns' and table != 'PROJ':
+        raise ValueError('Tabelkeuze is alleen beschikbaar voor kolommetadata.')
     if mode != "databases" and not config.get("database", "").strip():
         raise ValueError("Kies eerst een database: ./plenion.sh database")
     host, port = config['host'], int(config.get('port', 4900))
@@ -199,7 +208,7 @@ def read(config, limit, mode="projects", status_column=None):
         names = FIELDS
         if mode in ('projects', 'audit', 'columns'):
             print('Stap 7: projectquery uitvoeren...', flush=True)
-            query = 'SELECT * FROM PROJ WHERE 1=0' if mode == 'columns' else (audit_query or QUERY)
+            query = metadata_query if mode == 'columns' else (audit_query or QUERY)
             check(lib, lib.SQLExecDirect(stmt, query.encode(), -3), 'Projecten lezen', 3, stmt)
             if mode == 'columns':
                 return describe_columns(lib, stmt, config.get('encoding', 'utf-8')), False
@@ -283,6 +292,7 @@ def main():
     parser.add_argument('--config', default='/data/connection.json')
     parser.add_argument('--output')
     parser.add_argument('--status-column')
+    parser.add_argument('--table', help='Tabelnaam voor --mode columns; standaard PROJ')
     parser.add_argument('--export', default='/data/projects.json', help='Bestaande export voor de audit')
     parser.add_argument('--limit', type=int, default=20000)
     args = parser.parse_args()
@@ -295,6 +305,13 @@ def main():
             parser.error(str(error))
     elif args.status_column:
         parser.error('--status-column hoort bij --mode audit')
+    if args.table is not None:
+        if args.mode != 'columns':
+            parser.error('--table hoort alleen bij --mode columns')
+        try:
+            columns_query(args.table)
+        except ValueError as error:
+            parser.error(str(error))
     # Supervise a separate process: a native driver can block Python signal handlers.
     if not args.worker:
         try:
@@ -307,8 +324,9 @@ def main():
         return
     config = json.loads(Path(args.config).read_text())
     if args.mode == 'columns':
-        columns, _ = read(config, 2000, 'columns')
-        print('PROJ-kolommen (geen projectgegevens gelezen):')
+        table = args.table or 'PROJ'
+        columns, _ = read(config, 2000, 'columns', table=table)
+        print(f'{table}-kolommen (geen tabelinhoud gelezen):')
         for column in columns:
             print(column['name'])
         return

@@ -125,7 +125,7 @@ cd ~/plenion-reader
 sudo ./plenion.sh columns
 ```
 
-Dit voert alleen `SELECT * FROM PROJ WHERE 1=0` uit en beschrijft de kolommen, zonder projectinhoud op te halen. Zoek de echte statuskolom of laat de kolomlijst controleren. De reader raadt geen veldnamen of statuslabels. Als de status een verwijzing naar een andere tabel is, toont de audit de ruwe code; een naam uit het Plenion-scherm vereist dan nog de bevestigde relatie.
+Dit voert alleen `SELECT * FROM PROJ WHERE 1=0` uit en beschrijft de kolommen, zonder projectinhoud op te halen. Gebruik `sudo ./plenion.sh columns BSRT` om alleen de kolomnamen van een andere tabel te bekijken. Deze tabelkeuze verandert de projectexport niet. Zoek de echte statuskolom of laat de kolomlijst controleren. De reader raadt geen veldnamen of statuslabels. Als de status een verwijzing naar een andere tabel is, toont de audit de ruwe code; een naam uit het Plenion-scherm vereist dan nog de bevestigde relatie.
 
 Lees opnieuw en controleer vervolgens met de exacte kolomnaam (vervang `STATUSKOLOM`):
 

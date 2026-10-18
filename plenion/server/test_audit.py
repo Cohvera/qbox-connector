@@ -75,12 +75,13 @@ class AuditTests(unittest.TestCase):
             return 0
         lib.SQLNumResultCols.side_effect = columns
         lib.SQLDescribeCol.side_effect = describe
-        with patch('reader.socket.create_connection'), patch('reader.odbc', return_value=lib):
-            rows, truncated = reader.read({'host': 'localhost', 'database': 'fixture', 'user': 'reader', 'password': 'test'}, 2000, 'columns')
-        self.assertEqual([row['name'] for row in rows], ['IDProj', 'ActualStatus'])
-        self.assertFalse(truncated)
-        lib.SQLFetch.assert_not_called()
-        self.assertEqual(lib.SQLExecDirect.call_args.args[1], b'SELECT * FROM PROJ WHERE 1=0')
+        for table in ('PROJ', 'BSRT'):
+            with self.subTest(table=table), patch('reader.socket.create_connection'), patch('reader.odbc', return_value=lib):
+                rows, truncated = reader.read({'host': 'localhost', 'database': 'fixture', 'user': 'reader', 'password': 'test'}, 2000, 'columns', table=table)
+            self.assertEqual([row['name'] for row in rows], ['IDProj', 'ActualStatus'])
+            self.assertFalse(truncated)
+            lib.SQLFetch.assert_not_called()
+            self.assertEqual(lib.SQLExecDirect.call_args.args[1], f'SELECT * FROM {table} WHERE 1=0'.encode())
 
     def test_audit_read_keeps_raw_status_and_uses_only_selected_column(self):
         lib = MagicMock()
@@ -102,6 +103,14 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(rows, [{'source_id': '1', 'number': '123', 'status': ' 07 '}])
         self.assertFalse(truncated)
         self.assertEqual(lib.SQLExecDirect.call_args.args[1], reader.status_query('ActualStatus').encode())
+
+    def test_table_selection_cannot_inject_sql_or_change_project_export(self):
+        config = {'host': 'localhost', 'database': 'fixture'}
+        with patch('reader.socket.create_connection') as connect:
+            for mode, table in (('columns', 'BSRT;DELETE FROM PROJ'), ('columns', 'x.y'), ('projects', 'BSRT'), ('audit', 'BSRT')):
+                with self.subTest(mode=mode, table=table), self.assertRaises(ValueError):
+                    reader.read(config, 2000, mode, 'STAT', table=table)
+            connect.assert_not_called()
 
     def test_truncated_column_name_is_not_used(self):
         lib = MagicMock()

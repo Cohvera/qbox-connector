@@ -42,7 +42,7 @@ case "$ACTION" in
     exit
     ;;
   check|test|read|databases|tables|columns|audit) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns | audit STATUSKOLOM | check | test | read'; exit 0 ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | audit STATUSKOLOM | check | test | read'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then
@@ -58,7 +58,11 @@ if [ "$ACTION" = audit ]; then
   fi
   set -- --mode audit --status-column "$2"
 elif [ "$ACTION" = columns ]; then
-  set -- --mode columns
+  if [ "$#" -gt 2 ]; then
+    echo 'Gebruik: ./plenion.sh columns [TABEL]' >&2
+    exit 1
+  fi
+  set -- --mode columns --table "${2:-PROJ}"
 elif [ "$ACTION" = test ]; then
   set -- --limit 5 --output /data/projects-test.json
 elif [ "$ACTION" = databases ] || [ "$ACTION" = tables ]; then
