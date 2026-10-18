@@ -39,3 +39,36 @@ class ConfigurationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Geen wachtwoord'):
                     configure.configure(path)
             self.assertEqual(json.loads(path.read_text()), expected)
+
+    def test_encoding_only_preserves_account_and_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'connection.json'
+            expected = self.previous(path)
+            with patch('builtins.input', return_value='windows-1252'), patch('getpass.getpass') as password, patch('builtins.print') as output:
+                configure.configure(path, encoding_only=True)
+            expected['encoding'] = 'cp1252'
+            self.assertEqual(json.loads(path.read_text()), expected)
+            password.assert_not_called()
+            self.assertNotIn(expected['password'], str(output.call_args_list))
+
+    def test_invalid_or_nontext_encoding_does_not_overwrite_config(self):
+        for encoding in ('unknown-encoding', 'base64_codec'):
+            with self.subTest(encoding=encoding), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'connection.json'
+                self.previous(path)
+                original = path.read_bytes()
+                with patch('builtins.input', return_value=encoding), patch('getpass.getpass') as password:
+                    with self.assertRaisesRegex(ValueError, 'tekstcodering'):
+                        configure.configure(path, encoding_only=True)
+                self.assertEqual(path.read_bytes(), original)
+                password.assert_not_called()
+
+    def test_full_configuration_retains_existing_cp1252(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'connection.json'
+            expected = self.previous(path)
+            expected['encoding'] = 'cp1252'
+            path.write_text(json.dumps(expected))
+            with patch('builtins.input', return_value=''), patch('getpass.getpass', return_value=''):
+                configure.configure(path)
+            self.assertEqual(json.loads(path.read_text()), expected)

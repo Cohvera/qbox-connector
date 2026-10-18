@@ -96,8 +96,11 @@ def read(config, limit, mode="projects"):
         check(lib, lib.SQLAllocHandle(1, None, C.byref(env)), 'ODBC-omgeving')
         check(lib, lib.SQLSetEnvAttr(env, 200, C.c_void_p(3), 0), 'ODBC-versie', 1, env)
         check(lib, lib.SQLAllocHandle(2, env, C.byref(dbc)), 'Verbinding aanmaken', 1, env)
-        print('Stap 4: alleen-lezenmodus instellen...', flush=True)
-        check(lib, lib.SQLSetConnectAttr(dbc, 101, C.c_void_p(1), 0), 'Alleen-lezenmodus', 2, dbc)
+        # Pre-setting SQL_ATTR_ACCESS_MODE blocks SQLDriverConnect with the
+        # observed HFSQL 28 / Linux driver 31 combination. This reader only
+        # issues the fixed SELECT or catalog calls below. Enforce read-only
+        # permissions on the database account, not through this optional hint.
+        print('Stap 4: verbindingsinstellingen voorbereid.', flush=True)
         # Driver 31 stalls under emulation with SQL_ATTR_LOGIN_TIMEOUT.
         # The supervising Python process enforces the total timeout instead.
         out, size = C.create_string_buffer(2048), C.c_short()
@@ -146,7 +149,13 @@ def read(config, limit, mode="projects"):
                     total += size.value
                     if total > 20 * 1024 * 1024:
                         raise ValueError('Resultaat groter dan 20 MB; export gestopt.')
-                    row[field] = buf.raw[:size.value].decode(config.get('encoding', 'utf-8')).strip()
+                    try:
+                        row[field] = buf.raw[:size.value].decode(config.get('encoding', 'utf-8')).strip()
+                    except (UnicodeDecodeError, LookupError):
+                        raise ValueError(
+                            f'Tekstcodering ongeldig voor veld {field}; controleer de broncodering en gebruik '
+                            './plenion.sh encoding (bijvoorbeeld cp1252 voor een Windows-1252-bron). '
+                            'Vorig bestand blijft bewaard.') from None
             rows.append(row)
     except RuntimeError as exc:
         print(f'Leesfout vóór afsluiten: {exc}', file=sys.stderr, flush=True)

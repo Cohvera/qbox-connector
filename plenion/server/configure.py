@@ -1,5 +1,7 @@
 """Interactive local setup. Never passes the database password on the command line."""
 import getpass
+import argparse
+import codecs
 import json
 import os
 from pathlib import Path
@@ -7,7 +9,7 @@ import sys
 from reader import save, attr
 
 
-def configure(path=Path('data/connection.json'), database_only=False):
+def configure(path=Path('data/connection.json'), database_only=False, encoding_only=False):
     previous = json.loads(path.read_text()) if path.exists() else {}
 
     def ask(label, key, default='', required=True):
@@ -17,11 +19,20 @@ def configure(path=Path('data/connection.json'), database_only=False):
             raise ValueError(f'{label} is verplicht.')
         return value
 
-    if database_only:
+    if database_only or encoding_only:
         if not previous:
             raise ValueError('Voer eerst ./plenion.sh configure uit.')
         config = dict(previous)
-        config['database'] = ask('Exacte HFSQL-databasenaam', 'database')
+        if encoding_only:
+            chosen = ask('Tekstcodering (bijvoorbeeld utf-8 of cp1252)', 'encoding', 'utf-8')
+            try:
+                if not isinstance(codecs.decode(b'', chosen), str):
+                    raise ValueError('Geen tekstcodering')
+                config['encoding'] = codecs.lookup(chosen).name
+            except Exception:
+                raise ValueError('Onbekende of ongeschikte tekstcodering; configuratie niet gewijzigd.') from None
+        else:
+            config['database'] = ask('Exacte HFSQL-databasenaam', 'database')
     else:
         print('Gebruik je bestaande HFSQL-databaseaccount, niet je Windows- of Q-box-login.')
         print('Vul de Plenion/HFSQL-server van dit bedrijf in; dit is niet het adres van de Q-box.')
@@ -58,8 +69,13 @@ def configure(path=Path('data/connection.json'), database_only=False):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--database-only', action='store_true')
+    mode.add_argument('--encoding-only', action='store_true')
+    args = parser.parse_args()
     try:
-        configure(database_only=sys.argv[1:] == ['--database-only'])
+        configure(database_only=args.database_only, encoding_only=args.encoding_only)
     except (OSError, ValueError) as exc:
         print(f'Fout: {exc}', file=sys.stderr)
         sys.exit(1)
