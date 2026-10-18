@@ -5,11 +5,13 @@ umask 077
 IMAGE=cohvera-plenion-reader:local
 ACTION=${1:-help}
 case "$ACTION" in
-  configure|database)
+  configure|database|encoding)
     mkdir -p data
     chmod 700 data
     if [ "$ACTION" = database ]; then
       python3 configure.py --database-only
+    elif [ "$ACTION" = encoding ]; then
+      python3 configure.py --encoding-only
     else
       python3 configure.py
     fi
@@ -40,7 +42,7 @@ case "$ACTION" in
     exit
     ;;
   check|test|read|databases|tables) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | databases | tables | check | test | read'; exit 0 ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | check | test | read'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then

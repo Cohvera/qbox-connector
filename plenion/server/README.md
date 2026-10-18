@@ -97,13 +97,28 @@ python3 -m json.tool data/projects.json
 
 Het bestand bevat `source_id`, `number`, `customer_id`, `name`, `description` en `created_at`. De gebruikte SELECT komt uit de aangeleverde Central Data Platform-code. Kolomnamen moeten overeenkomen met jouw Plenion-versie. Meerdere versies van een project kunnen afzonderlijke records zijn; dit script maakt daar nog geen selectie in. `truncated: true` betekent dat de limiet bereikt is en het resultaat geen volledige export is. `fetched_at` is het ophaalmoment, niet het backupmoment of bewijs dat de bron actueel is.
 
-Bij een leesfout blijft het vorige uitvoerbestand bewaard. De reader schrijft geen gegevens naar HFSQL. Hij vraagt alleen-lezenmodus en voert één vaste SELECT uit. Gebruik bij voorkeur een databaseaccount met uitsluitend leesrechten.
+Bij een leesfout blijft het vorige uitvoerbestand bewaard. De reader schrijft geen gegevens naar HFSQL: hij voert één vaste SELECT uit, of vraagt catalogusmetadata op. Gebruik een databaseaccount met uitsluitend leesrechten om dat ook op de server af te dwingen. De optionele ODBC-instelling voor alleen-lezenmodus wordt niet vóór de aanmelding gezet: deze blokkeerde de aanmelding in de geteste HFSQL 28 / Linux-driver 31-combinatie. Zonder die instelling lukten aanmelden, lezen en afsluiten op de fysieke x86-64-Q-box.
+
+### Tekstcodering en accenten
+
+De standaardcodering voor opgehaalde tekst is UTF-8. Sommige HFSQL-bronnen leveren via de ANSI-ODBC-interface Windows-1252. Een test met vijf records kan slagen terwijl een volledige leesactie pas bij een later accent vastloopt.
+
+Wijzig alleen de tekstcodering, als gebruiker `loxberry`:
+
+```sh
+cd ~/plenion-reader
+./plenion.sh encoding
+```
+
+Vul `cp1252` in als de bron Windows-1252 gebruikt. Dit bewaart server, database, account en wachtwoord; het wachtwoord wordt niet opgevraagd of getoond. Een ongeldige codering wordt geweigerd voordat de configuratie wordt opgeslagen. Een bestaande coderingskeuze blijft bij `configure`, `database` en een pakketupdate behouden. Er is voor deze configuratiewijziging geen nieuwe containerbuild nodig.
+
+Voer daarna `sudo ./plenion.sh read` uit en controleer enkele bekende namen met accenten tegenover Plenion. Windows-1252 is geen automatische terugvaloptie: de bron moet deze codering daadwerkelijk gebruiken. De reader blijft strikt decoderen, vervangt of negeert geen ongeldige bytes en schrijft het uiteindelijke JSON-bestand altijd als UTF-8. Bij een fout wordt geen gedeeltelijk resultaat gepubliceerd.
 
 ## Wat dit al doet en wat nog niet
 
 Dit is de eerste praktische verbindingsstap. Het script uploadt nog niets naar Cohvera en bevat geen planning, statusmapping, revisiekeuze of bedrijfstoewijzing. De JSON is geen volledige v4-import voor het tv-scherm. Daarvoor moeten we daarna de echte statusvelden, revisies en afsluitvinkjes koppelen. Zo worden geen verzonnen statussen of onvolledige selecties geïmporteerd.
 
-De gedownloade driver 31 is **x86-64**, vastgesteld aan het ELF-bestand. Op jouw ARM64-Q-box gebruiken we daarom Docker met QEMU-emulatie. Dit is geen native ARM-driver. Python 3.11 op de Q-box is voldoende voor de configuratie; de driver en zijn libraries draaien samen in de container. De driver wordt rechtstreeks van de leverancier gedownload, niet meegestuurd in Git.
+De gedownloade driver 31 is **x86-64**, vastgesteld aan het ELF-bestand. Op een x86-64-Q-box draait hij native in Docker; op een ARM64-Q-box is QEMU-emulatie nodig. Dit is geen native ARM-driver. Python 3.11 op de Q-box is voldoende voor de configuratie; de driver en zijn libraries draaien samen in de container. De driver wordt rechtstreeks van de leverancier gedownload, niet meegestuurd in Git.
 
 Bronnen: [officiële Linux-ODBC-documentatie](https://doc.pcsoft.fr/fr-FR/?9000160), [officiële HFSQL-downloads](https://download.windev.com/fr/download/packs/HFSQL/2026.awp). Gecontroleerde download: `wxpack_iodbclinux316017.zip`, SHA-256 `127eb0c57882d474d4b8e964fd0cbb89edf44e3c20f2f5b96f74f1fad9e1e3ef`.
 
@@ -115,6 +130,7 @@ Bronnen: [officiële Linux-ODBC-documentatie](https://doc.pcsoft.fr/fr-FR/?90001
 - `Aanmelden bij HFSQL mislukt`: de poort is bereikbaar; controleer HFSQL-databasenaam, login en servercompatibiliteit. Alleen de foutcodes worden getoond, zodat driverdiagnostiek geen wachtwoord lekt.
 - `Projecten lezen mislukt`: controleer of deze database `PROJ` en de zes opgegeven velden bevat en de gebruiker leesrechten heeft.
 - Melding na 90 seconden: de reader is door het begeleidende proces gestopt; het vorige resultaat is behouden.
+- Tekstcoderingsfout: stel de juiste broncodering in met `./plenion.sh encoding`; controleer ook de volledige export en niet alleen de eerste vijf records.
 
 Deze eerste versie accepteert geen puntkomma in verbindingswaarden (ook niet in het wachtwoord); de configuratie meldt dat expliciet.
 
@@ -125,6 +141,8 @@ Driver apart controleren: `sudo ./plenion.sh check`. Deze controle maakt geen ve
 Lokaal getest op 13 oktober 2026: officiële ZIP gedownload en hash gecontroleerd; image gebouwd voor linux/amd64 op een ARM Docker-host; driver geladen en ODBC-omgeving aangemaakt met alleen-lezenbestandssysteem en een niet-rootgebruiker; iODBC bereikt een lokale testserver en meldt een afgebroken verbinding correct; negen Python-tests geslaagd voor verbindingswaarden, private atomische uitvoer , poortvalidatie de timeoutafhandeling, catalogus-aanroep en behoud van accountconfiguratie. Nog niet getest: authenticatie en echte projectresultaten van jouw HFSQL-server, of uitvoering op de fysieke LoxBerry.
 
 ## Een bestaand pakket bijwerken
+
+Praktijktest op 18 oktober 2026: de beheerder bevestigde aanmelden, een test met vijf records en een volledige export zonder afkapping op een fysieke x86-64-Q-box met HFSQL 28 en driver 31. Dit vereiste het weglaten van de vooraf ingestelde alleen-lezenoptie en `encoding: cp1252` voor de opgehaalde tekst. Deze controle bevestigt het lezen naar lokaal JSON; vergelijking van accenten met de bron en integratie met Portal blijven aparte controles.
 
 Kopieer het nieuwe archief opnieuw met de Mac-opdracht hierboven. Op de Q-box:
 
