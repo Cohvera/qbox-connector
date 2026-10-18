@@ -114,6 +114,32 @@ Vul `cp1252` in als de bron Windows-1252 gebruikt. Dit bewaart server, database,
 
 Voer daarna `sudo ./plenion.sh read` uit en controleer enkele bekende namen met accenten tegenover Plenion. Windows-1252 is geen automatische terugvaloptie: de bron moet deze codering daadwerkelijk gebruiken. De reader blijft strikt decoderen, vervangt of negeert geen ongeldige bytes en schrijft het uiteindelijke JSON-bestand altijd als UTF-8. Bij een fout wordt geen gedeeltelijk resultaat gepubliceerd.
 
+### Op de Q-box controleren of alle records per status zijn uitgelezen
+
+Deze controle draait in de reader. Je hoeft geen SQL in Control Center uit te voeren. De gewone `read`-export bevat nog geen statusveld: de audit leest de status op het controlemoment uit dezelfde ingestelde database en vergelijkt de record-IDs met het bestaande `data/projects.json`.
+
+Bekijk eerst de werkelijke kolomnamen:
+
+```sh
+cd ~/plenion-reader
+sudo ./plenion.sh columns
+```
+
+Dit voert alleen `SELECT * FROM PROJ WHERE 1=0` uit en beschrijft de kolommen, zonder projectinhoud op te halen. Zoek de echte statuskolom of laat de kolomlijst controleren. De reader raadt geen veldnamen of statuslabels. Als de status een verwijzing naar een andere tabel is, toont de audit de ruwe code; een naam uit het Plenion-scherm vereist dan nog de bevestigde relatie.
+
+Lees opnieuw en controleer vervolgens met de exacte kolomnaam (vervang `STATUSKOLOM`):
+
+```sh
+sudo ./plenion.sh read
+sudo ./plenion.sh audit STATUSKOLOM
+```
+
+De reader toont per statuswaarde het aantal databaserecords, hoeveel van die IDs in de export aanwezig zijn en hoeveel ontbreken. NULL, lege en andere waarden blijven afzonderlijke groepen. Het rapport staat in `data/audit-status.json`; configuratie en projectexport worden niet overschreven. Behandel ook dit rapport als bedrijfsinformatie.
+
+De audit vergelijkt de IDs zelf en controleert dubbele export-IDs, gewijzigde projectnummers, afkapping en extra/ontbrekende records. Gelijke totaalaantallen zijn dus niet voldoende. Exitcode 0 betekent overeenstemmende IDs/projectnummers, 2 betekent een afwijking en 1 een uitvoeringsfout. Een afgekapt auditresultaat wordt geweigerd. De limiet blijft 20.000 bronrecords.
+
+Deze controle telt **alle records en versies** in `PROJ`, zonder statusfilter. Hij selecteert niet automatisch de actieve revisie of het dagboek Projecten/Offertes. Statuswaarden komen uit de huidige database; ze bewijzen geen historische status in een oudere export en controleren niet de overige tekstvelden. Wijzigingen in de database tussen `read` en `audit` kunnen verschillen veroorzaken. Gebruik dezelfde database en vergelijk in Plenion dezelfde versie- en dagboekselectie. De audit verandert geen HFSQL-data en uploadt niets naar Portal.
+
 ## Wat dit al doet en wat nog niet
 
 Dit is de eerste praktische verbindingsstap. Het script uploadt nog niets naar Cohvera en bevat geen planning, statusmapping, revisiekeuze of bedrijfstoewijzing. De JSON is geen volledige v4-import voor het tv-scherm. Daarvoor moeten we daarna de echte statusvelden, revisies en afsluitvinkjes koppelen. Zo worden geen verzonnen statussen of onvolledige selecties geïmporteerd.
@@ -158,3 +184,4 @@ Het archief bevat geen `data`-map, dus je bestaande configuratie en opgehaalde p
 ### Debian 13: docker.io geïnstalleerd, docker-commando ontbreekt
 
 Installeer ook `sudo apt-get install -y docker-cli`. Debian 13 verpakt de client apart. Controleer daarna `sudo docker version` en start `sudo systemctl enable --now docker`. Herhaal vervolgens `sudo ./plenion.sh install`. Zie https://packages.debian.org/trixie/admin/docker-cli.
+

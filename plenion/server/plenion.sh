@@ -41,8 +41,8 @@ case "$ACTION" in
     echo 'Installatie klaar. Volgende stap als loxberry: ./plenion.sh configure'
     exit
     ;;
-  check|test|read|databases|tables) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | check | test | read'; exit 0 ;;
+  check|test|read|databases|tables|columns|audit) ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns | audit STATUSKOLOM | check | test | read'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then
@@ -51,7 +51,15 @@ fi
 [ -f data/connection.json ] || { echo 'Voer eerst ./plenion.sh configure uit als loxberry.' >&2; exit 1; }
 # Run as the owner of the configuration, even when Docker needs sudo.
 OWNER=$(stat -c '%u:%g' data/connection.json 2>/dev/null || stat -f '%u:%g' data/connection.json)
-if [ "$ACTION" = test ]; then
+if [ "$ACTION" = audit ]; then
+  if [ "$#" -ne 2 ]; then
+    echo 'Gebruik: ./plenion.sh audit STATUSKOLOM. Bekijk eerst ./plenion.sh columns.' >&2
+    exit 1
+  fi
+  set -- --mode audit --status-column "$2"
+elif [ "$ACTION" = columns ]; then
+  set -- --mode columns
+elif [ "$ACTION" = test ]; then
   set -- --limit 5 --output /data/projects-test.json
 elif [ "$ACTION" = databases ] || [ "$ACTION" = tables ]; then
   set -- --mode "$ACTION"
@@ -64,3 +72,4 @@ exec docker run --rm --platform linux/amd64 --network host \
   --cap-drop ALL --security-opt no-new-privileges --memory 512m --pids-limit 64 \
   -v "$PWD/data:/data" -v "$PWD/data/connection.json:/data/connection.json:ro" \
   "$IMAGE" "$@"
+
