@@ -16,8 +16,8 @@ DRIVER = '/driver/wd310hfo64.so'
 FIELDS = ('source_id', 'number', 'customer_id', 'name', 'description', 'created_at')
 QUERY = 'SELECT IDProj,projnr,KLCLEUNIK,Naam,oms,CDATUM FROM PROJ ORDER BY IDProj'
 
-PORTAL_FIELDS = ('source_id', 'number', 'name', 'description', 'status_id', 'status_code', 'status_label', 'revision_closed', 'out_of_wip')
-PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P.VersieAf,P.UITWIP "
+PORTAL_FIELDS = ('source_id', 'number', 'name', 'description', 'status_id', 'status_code', 'status_label', 'revision_closed', 'out_of_wip', 'parent_source_id', 'is_project_map', 'document_type', 'version_number')
+PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P.VersieAf,P.UITWIP,P.IDProjectMap,P.ProjectMap,P.BSRTCD,P.VersieNr "
                "FROM PROJ P LEFT JOIN WERK W ON P.STAT=W.WECLEUNIK AND W.TYPE='PRS' "
                "ORDER BY P.IDProj")
 STATUS_FIELDS = ('status_id', 'code', 'label')
@@ -348,10 +348,10 @@ def main():
         if truncated:
             raise ValueError('Portaalexport afgekapt; vorig bestand blijft bewaard.')
         for row in rows:
-            for field in ('revision_closed', 'out_of_wip'):
+            for field in ('revision_closed', 'out_of_wip', 'parent_source_id', 'is_project_map', 'document_type', 'version_number'):
                 if row[field] not in ('0', '1'):
                     raise ValueError('Onbekend afsluitvinkje; export gestopt.')
-        save(output, {'schema_version': 1, 'source': 'plenion_reader_projects',
+        save(output, {'schema_version': 2, 'source': 'plenion_reader_projects',
                       'fetched_at': datetime.now(timezone.utc).isoformat(),
                       'count': len(rows), 'truncated': False, 'projects': rows})
         print(f'OK: {len(rows)} projectrecords met bronstatus opgeslagen in {output}.')

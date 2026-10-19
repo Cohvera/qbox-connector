@@ -210,7 +210,8 @@ Dit commando wijzigt nog geen projectselectie en uploadt niets naar Portal.
 
 Voer `sudo ./plenion.sh portal` uit. Het resultaat staat in
 `data/portal-projects.json`. Dit bestand bevat alle projectrecords met de
-status-ID, code, omschrijving, VersieAf en UITWIP. Er wordt geen bedrijf of
+status-ID, code, omschrijving, VersieAf, UITWIP, IDProjectMap, ProjectMap,
+BSRTCD en VersieNr (schema_version 2). Er wordt geen bedrijf of
 bedrijfsfilter in de reader ingesteld. De bestaande basisexport blijft behouden.
 
 Kopieer het bestand naar je Mac:
@@ -218,6 +219,5 @@ Kopieer het bestand naar je Mac:
 scp loxberry@10.121.15.44:~/plenion-reader/data/portal-projects.json ~/Downloads/
 ```
 Selecteer het juiste bedrijf in Cohvera en open Projecten → Projecten uit
-Plenion importeren. Cohvera bepaalt de bedrijfsregels. Momenteel is alleen
-Warco geconfigureerd, met statuscode 07. De export mag maximaal 24 uur oud
+Plenion importeren. Cohvera bepaalt de bedrijfsregels. Bedrijfsprofielen en statusselectie worden uitsluitend in Cohvera beheerd. De export mag maximaal 24 uur oud
 zijn. Dit is een handmatige import; de reader uploadt dit bestand niet automatisch.

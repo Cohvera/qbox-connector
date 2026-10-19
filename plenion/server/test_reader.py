@@ -138,8 +138,8 @@ class ReaderTests(unittest.TestCase):
 
     def test_portal_export_has_no_company_or_status_filter(self):
         lib = self.encoded_project_driver(b'unused')
-        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 9) or 0)
-        values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0']
+        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 13) or 0)
+        values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0', b'0', b'1', b'600', b'1']
         def field(stmt, index, kind, buf, length, size):
             buf.value = values[index - 1]
             size._obj.value = len(buf.value)
