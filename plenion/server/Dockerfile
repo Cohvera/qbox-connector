@@ -6,4 +6,6 @@ RUN curl --fail --location --retry 3 --connect-timeout 20 --max-time 300 \
  && mkdir /driver && unzip -q /tmp/driver.zip '*.so' -d /driver && rm /tmp/driver.zip
 ENV LD_LIBRARY_PATH=/driver PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
 COPY reader.py /app/reader.py
+# The reader runs as the configuration owner, not root. Do not inherit a restrictive host umask.
+RUN chmod 755 /app && chmod 644 /app/reader.py
 ENTRYPOINT ["python3", "/app/reader.py"]

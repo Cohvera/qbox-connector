@@ -348,9 +348,9 @@ def main():
         if truncated:
             raise ValueError('Portaalexport afgekapt; vorig bestand blijft bewaard.')
         for row in rows:
-            for field in ('revision_closed', 'out_of_wip', 'parent_source_id', 'is_project_map', 'document_type', 'version_number'):
+            for field in ('revision_closed', 'out_of_wip', 'is_project_map'):
                 if row[field] not in ('0', '1'):
-                    raise ValueError('Onbekend afsluitvinkje; export gestopt.')
+                    raise ValueError(f'Onbekende vinkjeswaarde voor {field}; export gestopt, vorig bestand blijft bewaard.')
         save(output, {'schema_version': 2, 'source': 'plenion_reader_projects',
                       'fetched_at': datetime.now(timezone.utc).isoformat(),
                       'count': len(rows), 'truncated': False, 'projects': rows})

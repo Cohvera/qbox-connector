@@ -136,6 +136,28 @@ class ReaderTests(unittest.TestCase):
                 reader.main()
 
 
+    def test_portal_command_accepts_parent_ids_document_types_and_versions(self):
+        row = dict(zip(reader.PORTAL_FIELDS, [
+            '12001', '1809642', 'Project', 'Omschrijving', '31701', '07',
+            '07 - In Uitvoering', '0', '0', '11392', '0', '601', '3']))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, output = root/'connection.json', root/'portal-projects.json'
+            config.write_text('{}')
+            args = ['reader.py', '--worker', '--mode', 'portal',
+                    '--config', str(config), '--output', str(output)]
+            with patch('sys.argv', args), patch('reader.read', return_value=([row], False)):
+                reader.main()
+            saved = json.loads(output.read_text())
+            self.assertEqual(saved['schema_version'], 2)
+            self.assertEqual(saved['projects'][0], row)
+            original = output.read_bytes()
+            for field in ('revision_closed', 'out_of_wip', 'is_project_map'):
+                with patch('sys.argv', args), patch('reader.read', return_value=([{**row, field: '2'}], False)):
+                    with self.assertRaisesRegex(ValueError, field):
+                        reader.main()
+                self.assertEqual(output.read_bytes(), original)
+
     def test_portal_export_has_no_company_or_status_filter(self):
         lib = self.encoded_project_driver(b'unused')
         lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 13) or 0)
