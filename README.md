@@ -40,7 +40,7 @@ python3 scripts/build_reader.py
 
 ## Rechtstreekse Plenion-reader
 
-De nieuwste zelfstandige reader staat in [`plenion/server`](plenion/server/README.md). Bouw met `python3 scripts/build_reader.py`; het pakket komt in `dist/cohvera-plenion-reader.tar.gz`. Installeer het op de Q-box onder `~/plenion-reader`. Deze reader haalt voorlopig projectrecords naar een lokaal JSON-bestand; hij uploadt nog niet naar Portal. Hij is nog niet in de bestaande LoxBerry-plugin geïntegreerd.
+De nieuwste zelfstandige reader staat in [`plenion/server`](plenion/server/README.md). Bouw met `python3 scripts/build_reader.py`; het pakket komt in `dist/cohvera-plenion-reader.tar.gz`. Installeer het op de Q-box onder `~/plenion-reader`. Deze reader maakt een algemeen JSON-bestand en kan dat via HTTPS elke 15 minuten naar Portal sturen. Stel upload-config in, test sync en activeer auto-install; zie de readerhandleiding. Hij is nog niet in de bestaande LoxBerry-plugin geïntegreerd.
 
 De offline-backuproute staat apart beschreven in [`plenion/README.md`](plenion/README.md). De API-wijzigingen die daarvoor nodig zijn, blijven in Portal.
 

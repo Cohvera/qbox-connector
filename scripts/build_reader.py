@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'plenion' / 'server'
 FILES = (
     'Dockerfile', '.dockerignore', '.gitignore', 'plenion.sh', 'configure.py',
-    'reader.py', 'test_reader.py', 'test_configuration.py', 'test_audit.py', 'README.md',
+    'reader.py', 'sync.py', 'test_sync.py', 'test_reader.py', 'test_configuration.py', 'test_audit.py', 'README.md',
 )
 
 

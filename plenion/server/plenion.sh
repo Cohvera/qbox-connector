@@ -5,6 +5,10 @@ umask 077
 IMAGE=cohvera-plenion-reader:local
 ACTION=${1:-help}
 case "$ACTION" in
+  upload-config) exec python3 sync.py configure ;;
+  sync) exec python3 sync.py run ;;
+  auto-install) exec python3 sync.py install-timer ;;
+
   configure|database|encoding)
     mkdir -p data
     chmod 700 data
@@ -42,7 +46,7 @@ case "$ACTION" in
     exit
     ;;
   check|test|read|databases|tables|columns|audit|statuses|portal) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | portal | audit STATUSKOLOM | check | test | read'; exit 0 ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | portal | audit STATUSKOLOM | check | test | read | upload-config | sync | auto-install'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then

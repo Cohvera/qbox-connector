@@ -142,7 +142,7 @@ Deze controle telt **alle records en versies** in `PROJ`, zonder statusfilter. H
 
 ## Wat dit al doet en wat nog niet
 
-Dit is de eerste praktische verbindingsstap. Het script uploadt nog niets naar Cohvera en bevat geen planning, statusmapping, revisiekeuze of bedrijfstoewijzing. De JSON is geen volledige v4-import voor het tv-scherm. Daarvoor moeten we daarna de echte statusvelden, revisies en afsluitvinkjes koppelen. Zo worden geen verzonnen statussen of onvolledige selecties geïmporteerd.
+De basisopdracht read maakt alleen een lokale export. Gebruik portal voor het uitgebreide JSON-formaat met status- en projectmapvelden. De bedrijfsselectie en groepering gebeuren in Cohvera. Automatische HTTPS-upload is optioneel via sync en auto-install, zoals hieronder beschreven.
 
 De gedownloade driver 31 is **x86-64**, vastgesteld aan het ELF-bestand. Op een x86-64-Q-box draait hij native in Docker; op een ARM64-Q-box is QEMU-emulatie nodig. Dit is geen native ARM-driver. Python 3.11 op de Q-box is voldoende voor de configuratie; de driver en zijn libraries draaien samen in de container. De driver wordt rechtstreeks van de leverancier gedownload, niet meegestuurd in Git.
 
@@ -220,4 +220,81 @@ scp loxberry@10.121.15.44:~/plenion-reader/data/portal-projects.json ~/Downloads
 ```
 Selecteer het juiste bedrijf in Cohvera en open Projecten → Projecten uit
 Plenion importeren. Cohvera bepaalt de bedrijfsregels. Bedrijfsprofielen en statusselectie worden uitsluitend in Cohvera beheerd. De export mag maximaal 24 uur oud
-zijn. Dit is een handmatige import; de reader uploadt dit bestand niet automatisch.
+zijn. De opdracht portal maakt alleen het bestand. Voor automatische upload zie hieronder.
+
+## Automatisch elke 15 minuten naar Cohvera
+
+Werk eerst Portal bij. De API biedt POST /api/integrations/qbox/plenion/reader-projects
+aan via Caddy. Deze route gebruikt dezelfde import en bedrijfsfilters als de handmatige upload.
+
+### Op de Portal-server
+
+Zet in /root/Portal/.env:
+
+    QBOX_IMPORT_KEY_QHOME=<unieke sleutel voor Q-Home>
+    QBOX_IMPORT_KEY_TOMME=
+    QBOX_IMPORT_KEY_WARCO=
+
+Gebruik een willekeurige sleutel van 43–128 tekens (letters, cijfers, underscore, streepje),
+bijvoorbeeld lokaal gegenereerd met:
+
+    python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+
+Bewaar die uitsluitend in de serverconfiguratie en op de Q-box; niet in Git of chat.
+Genereer voor ieder actief bedrijf een verschillende sleutel; laat ongebruikte sleutels leeg.
+Op de Q-box vul je uitsluitend de sleutel van het gewenste doelbedrijf in.
+Cohvera bepaalt het bedrijf uit die sleutel, niet uit het JSON-bestand.
+QBOX_IMPORT_API_KEY met QBOX_IMPORT_COMPANY blijft optioneel beschikbaar voor oudere
+connectoren. Behoud die instellingen zolang een bestaande connector ze gebruikt.
+Gebruik een sleutel nooit voor verschillende bedrijven; Cohvera weigert die configuratie.
+Alleen QHOME heeft momenteel een reader-importprofiel (status 07). Sleutels voor
+TOMME en WARCO geven niet automatisch een statusprofiel; die bedrijfsregels moeten
+eerst in Portal worden ingesteld. Sleutelwijzigingen vereisen een nieuwe API-container.
+Bouw de bijgewerkte Portal API en hermaak de container om de env te laden:
+
+    cd /root/Portal
+    docker compose -f docker-compose.yml -f docker-compose.warehouse.yml up -d --build api
+
+### Op de Q-box
+
+Update het readerpakket zoals hierboven. Voer daarna als loxberry de uploadconfiguratie uit:
+
+    cd ~/plenion-reader
+    ./plenion.sh upload-config
+
+Vul het publieke HTTPS-adres van Cohvera in, zonder /api of ander pad,
+en dezelfde importsleutel. data/upload.json wordt met rechten 600 opgeslagen.
+De bestaande HFSQL-configuratie blijft behouden. De API kiest het bedrijf.
+
+Test één volledige export en upload:
+
+    sudo ./plenion.sh sync
+
+Wacht op "Cohvera bevestigt ... projecten ... voor QHOME". Activeer daarna:
+
+    sudo ./plenion.sh auto-install
+    systemctl list-timers cohvera-reader-sync.timer
+
+De timer draait op minuut 00, 15, 30 en 45, met maximaal 15 seconden spreiding.
+Na een gemist tijdstip door uitschakeling volgt één inhaalrun. Iedere run maakt
+een nieuwe export; bij een leesfout wordt het vorige bestand niet alsnog verstuurd.
+TLS-certificaten worden gecontroleerd, redirects worden geweigerd en de sleutel
+wordt alleen in een HTTP-header verstuurd. Een mislukte upload wordt bij de volgende
+cyclus opnieuw geprobeerd met een nieuwe export.
+
+### Controle en beheer op de Q-box
+
+    sudo journalctl -u cohvera-reader-sync.service -n 60 --no-pager
+    systemctl status cohvera-reader-sync.timer --no-pager
+
+Eenmalig uitvoeren of uitschakelen:
+
+    sudo systemctl start cohvera-reader-sync.service
+    sudo systemctl disable --now cohvera-reader-sync.timer
+
+Gebruik deze timer niet tegelijk met een oudere connector die dezelfde projecten
+naar hetzelfde doelbedrijf stuurt. De timer draait als root om Docker te kunnen
+starten; het databaseleesproces in Docker blijft draaien als eigenaar van
+data/connection.json. De 15-minutencyclus leest de ingestelde HFSQL-server:
+als die alleen dagelijks uit een backup ververst wordt, blijft de broninhoud
+dagelijks ververst. Uploadfrequentie verandert dat niet.
