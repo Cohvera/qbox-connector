@@ -185,3 +185,39 @@ Het archief bevat geen `data`-map, dus je bestaande configuratie en opgehaalde p
 
 Installeer ook `sudo apt-get install -y docker-cli`. Debian 13 verpakt de client apart. Controleer daarna `sudo docker version` en start `sudo systemctl enable --now docker`. Herhaal vervolgens `sudo ./plenion.sh install`. Zie https://packages.debian.org/trixie/admin/docker-cli.
 
+
+## Projectstatussen opzoeken
+
+Na installatie van dit pakket:
+
+```sh
+sudo ./plenion.sh statuses
+```
+
+Dit leest alleen `WECLEUNIK, CODE, OMSCHR1` uit `WERK WHERE TYPE='PRS'`.
+Het toont de status-ID, code en omschrijving en bewaart ze apart in
+`data/project-statuses.json`. De bestaande `data/projects.json` blijft behouden.
+Een leeg, afgekapt of dubbelzinnig overzicht vervangt de vorige statuslijst niet.
+
+De historische NAS-mapping in plenion-central-data-platform
+(commit `c4f0752286931e4fe5100c01c7d975dd1386cb5c`,
+`datahub/backend/src/nas-project-mapping.js`) koppelt `PROJ.STAT`
+aan `WERK.WECLEUNIK` binnen type `PRS`. Gebruik de IDs en omschrijvingen
+uit de eigen database; IDs uit Tomme mogen niet als vaste Warco-mapping worden gebruikt.
+Dit commando wijzigt nog geen projectselectie en uploadt niets naar Portal.
+
+## Algemeen JSON-bestand voor Cohvera
+
+Voer `sudo ./plenion.sh portal` uit. Het resultaat staat in
+`data/portal-projects.json`. Dit bestand bevat alle projectrecords met de
+status-ID, code, omschrijving, VersieAf en UITWIP. Er wordt geen bedrijf of
+bedrijfsfilter in de reader ingesteld. De bestaande basisexport blijft behouden.
+
+Kopieer het bestand naar je Mac:
+```sh
+scp loxberry@10.121.15.44:~/plenion-reader/data/portal-projects.json ~/Downloads/
+```
+Selecteer het juiste bedrijf in Cohvera en open Projecten → Projecten uit
+Plenion importeren. Cohvera bepaalt de bedrijfsregels. Momenteel is alleen
+Warco geconfigureerd, met statuscode 07. De export mag maximaal 24 uur oud
+zijn. Dit is een handmatige import; de reader uploadt dit bestand niet automatisch.

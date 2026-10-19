@@ -16,6 +16,12 @@ DRIVER = '/driver/wd310hfo64.so'
 FIELDS = ('source_id', 'number', 'customer_id', 'name', 'description', 'created_at')
 QUERY = 'SELECT IDProj,projnr,KLCLEUNIK,Naam,oms,CDATUM FROM PROJ ORDER BY IDProj'
 
+PORTAL_FIELDS = ('source_id', 'number', 'name', 'description', 'status_id', 'status_code', 'status_label', 'revision_closed', 'out_of_wip')
+PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P.VersieAf,P.UITWIP "
+               "FROM PROJ P LEFT JOIN WERK W ON P.STAT=W.WECLEUNIK AND W.TYPE='PRS' "
+               "ORDER BY P.IDProj")
+STATUS_FIELDS = ('status_id', 'code', 'label')
+STATUSES_QUERY = "SELECT WECLEUNIK,CODE,OMSCHR1 FROM WERK WHERE TYPE='PRS' ORDER BY WECLEUNIK"
 
 def status_query(column):
     # Accept one simple identifier, never an SQL expression or filter.
@@ -157,7 +163,7 @@ def driver_check():
 
 
 def read(config, limit, mode="projects", status_column=None, table="PROJ"):
-    if mode not in ("projects", "databases", "tables", "columns", "audit"):
+    if mode not in ("projects", "databases", "tables", "columns", "audit", "statuses", "portal"):
         raise ValueError("Onbekende leesmodus.")
     audit_query = status_query(status_column) if mode == 'audit' else None
     metadata_query = columns_query(table) if mode == 'columns' else None
@@ -206,12 +212,16 @@ def read(config, limit, mode="projects", status_column=None, table="PROJ"):
         print('Stap 6: leesopdracht voorbereiden...', flush=True)
         check(lib, lib.SQLAllocHandle(3, dbc, C.byref(stmt)), 'Query aanmaken', 2, dbc)
         names = FIELDS
-        if mode in ('projects', 'audit', 'columns'):
-            print('Stap 7: projectquery uitvoeren...', flush=True)
-            query = metadata_query if mode == 'columns' else (audit_query or QUERY)
+        if mode in ('projects', 'audit', 'columns', 'statuses', 'portal'):
+            print('Stap 7: leesquery uitvoeren...', flush=True)
+            query = PORTAL_QUERY if mode == 'portal' else STATUSES_QUERY if mode == 'statuses' else (metadata_query if mode == 'columns' else (audit_query or QUERY))
             check(lib, lib.SQLExecDirect(stmt, query.encode(), -3), 'Projecten lezen', 3, stmt)
             if mode == 'columns':
                 return describe_columns(lib, stmt, config.get('encoding', 'utf-8')), False
+            if mode == 'portal':
+                names = PORTAL_FIELDS
+            if mode == 'statuses':
+                names = STATUS_FIELDS
             if mode == 'audit':
                 names = ('source_id', 'number', 'status')
         else:
@@ -225,7 +235,7 @@ def read(config, limit, mode="projects", status_column=None, table="PROJ"):
             check(lib, code, 'Databaseoverzicht (mogelijk niet ondersteund)' if mode == 'databases' else 'Tabellen opvragen', 3, stmt)
         count = C.c_short()
         check(lib, lib.SQLNumResultCols(stmt, C.byref(count)), 'Kolommen lezen', 3, stmt)
-        if count.value < len(names) or (mode in ('projects', 'audit') and count.value != len(names)):
+        if count.value < len(names) or (mode in ('projects', 'audit', 'statuses', 'portal') and count.value != len(names)):
             raise ValueError('De projectquery levert onverwachte kolommen op.')
         print('Stap 8: resultaat ophalen...', flush=True)
         rows, total = [], 0
@@ -287,7 +297,7 @@ def save(path, payload):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
-    parser.add_argument('--mode', choices=('projects', 'databases', 'tables', 'columns', 'audit'), default='projects')
+    parser.add_argument('--mode', choices=('projects', 'databases', 'tables', 'columns', 'audit', 'statuses', 'portal'), default='projects')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--config', default='/data/connection.json')
     parser.add_argument('--output')
@@ -329,6 +339,45 @@ def main():
         print(f'{table}-kolommen (geen tabelinhoud gelezen):')
         for column in columns:
             print(column['name'])
+        return
+    if args.mode == 'portal':
+        output = Path(args.output or '/data/portal-projects.json')
+        if output.resolve() in {Path(args.config).resolve(), (Path(args.config).parent / 'projects.json').resolve()}:
+            raise ValueError('Portaalexport mag de configuratie of basisexport niet overschrijven.')
+        rows, truncated = read(config, args.limit, 'portal')
+        if truncated:
+            raise ValueError('Portaalexport afgekapt; vorig bestand blijft bewaard.')
+        for row in rows:
+            for field in ('revision_closed', 'out_of_wip'):
+                if row[field] not in ('0', '1'):
+                    raise ValueError('Onbekend afsluitvinkje; export gestopt.')
+        save(output, {'schema_version': 1, 'source': 'plenion_reader_projects',
+                      'fetched_at': datetime.now(timezone.utc).isoformat(),
+                      'count': len(rows), 'truncated': False, 'projects': rows})
+        print(f'OK: {len(rows)} projectrecords met bronstatus opgeslagen in {output}.')
+        return
+    if args.mode == 'statuses':
+        output = Path(args.output or '/data/project-statuses.json')
+        protected = (Path(args.export), Path(args.config), Path(args.config).parent / 'projects.json')
+        if output.resolve() in {path.resolve() for path in protected}:
+            raise ValueError('Statusoverzicht mag de export of configuratie niet overschrijven.')
+        rows, truncated = read(config, min(args.limit, 2000), 'statuses')
+        if truncated or not rows:
+            raise ValueError('Geen volledig PRS-statusoverzicht ontvangen; vorig bestand blijft bewaard.')
+        ids = set()
+        for row in rows:
+            key = row.get('status_id')
+            if not key or key in ids or not row.get('label'):
+                raise ValueError('Ontbrekende of dubbele status-ID of lege omschrijving; vorig bestand blijft bewaard.')
+            ids.add(key)
+        save(output, {'source': 'plenion_hfsql_server', 'database': config.get('database'),
+                      'source_table': 'WERK', 'type': 'PRS',
+                      'fetched_at': datetime.now(timezone.utc).isoformat(),
+                      'count': len(rows), 'statuses': rows})
+        print('Status-ID | Code | Omschrijving')
+        for row in rows:
+            print(' | '.join(json.dumps(row[field], ensure_ascii=True) for field in STATUS_FIELDS))
+        print(f'OK: {len(rows)} projectstatussen opgeslagen in {output}. Projectexport niet gewijzigd.')
         return
     if args.mode == 'audit':
         output = Path(args.output or '/data/audit-status.json')

@@ -41,8 +41,8 @@ case "$ACTION" in
     echo 'Installatie klaar. Volgende stap als loxberry: ./plenion.sh configure'
     exit
     ;;
-  check|test|read|databases|tables|columns|audit) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | audit STATUSKOLOM | check | test | read'; exit 0 ;;
+  check|test|read|databases|tables|columns|audit|statuses|portal) ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | portal | audit STATUSKOLOM | check | test | read'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then
@@ -65,7 +65,7 @@ elif [ "$ACTION" = columns ]; then
   set -- --mode columns --table "${2:-PROJ}"
 elif [ "$ACTION" = test ]; then
   set -- --limit 5 --output /data/projects-test.json
-elif [ "$ACTION" = databases ] || [ "$ACTION" = tables ]; then
+elif [ "$ACTION" = databases ] || [ "$ACTION" = tables ] || [ "$ACTION" = statuses ] || [ "$ACTION" = portal ]; then
   set -- --mode "$ACTION"
 else
   set --

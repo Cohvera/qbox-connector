@@ -135,4 +135,66 @@ class ReaderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '90 seconden'):
                 reader.main()
 
+
+    def test_portal_export_has_no_company_or_status_filter(self):
+        lib = self.encoded_project_driver(b'unused')
+        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 9) or 0)
+        values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0']
+        def field(stmt, index, kind, buf, length, size):
+            buf.value = values[index - 1]
+            size._obj.value = len(buf.value)
+            return 0
+        lib.SQLGetData.side_effect = field
+        with patch('reader.socket.create_connection'), patch('reader.odbc', return_value=lib):
+            rows, truncated = reader.read(
+                {'host': 'localhost', 'database': 'fixture', 'user': 'reader', 'password': ''}, 20000, 'portal')
+        self.assertEqual(rows[0]['status_code'], '02')
+        self.assertFalse(truncated)
+        query = lib.SQLExecDirect.call_args.args[1].decode()
+        self.assertIn('LEFT JOIN WERK', query)
+        self.assertNotIn("W.CODE=", query)
+        self.assertNotIn("WHERE", query)
+
+    def test_status_lookup_reads_only_project_status_labels(self):
+        lib = self.encoded_project_driver(b'unused')
+        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 3) or 0)
+        values = [b'52900', b'07', b'In uitvoering']
+        def field(stmt, index, kind, buf, length, size):
+            buf.value = values[index - 1]
+            size._obj.value = len(buf.value)
+            return 0
+        lib.SQLGetData.side_effect = field
+        with patch('reader.socket.create_connection'), patch('reader.odbc', return_value=lib):
+            rows, truncated = reader.read(
+                {'host': 'localhost', 'database': 'fixture', 'user': 'reader', 'password': ''}, 2000, 'statuses')
+        self.assertEqual(rows, [{'status_id': '52900', 'code': '07', 'label': 'In uitvoering'}])
+        self.assertFalse(truncated)
+        self.assertEqual(lib.SQLExecDirect.call_args.args[1],
+                         b"SELECT WECLEUNIK,CODE,OMSCHR1 FROM WERK WHERE TYPE='PRS' ORDER BY WECLEUNIK")
+        lib.SQLTables.assert_not_called()
+
+    def test_status_report_preserves_export_and_rejects_incomplete_lookup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, export, output = root/'connection.json', root/'projects.json', root/'project-statuses.json'
+            config.write_text('{"database":"fixture"}')
+            export.write_text('original projects')
+            args = ['reader.py', '--worker', '--mode', 'statuses', '--config', str(config),
+                    '--export', str(export), '--output', str(output)]
+            valid = [{'status_id': '52900', 'code': '07', 'label': 'In uitvoering'}]
+            with patch('sys.argv', args), patch('reader.read', return_value=(valid, False)):
+                reader.main()
+            original = output.read_bytes()
+            for rows, truncated in [(valid, True), ([], False), (valid * 2, False),
+                                    ([{'status_id': '1', 'code': None, 'label': None}], False)]:
+                with patch('sys.argv', args), patch('reader.read', return_value=(rows, truncated)):
+                    with self.assertRaises(ValueError):
+                        reader.main()
+                self.assertEqual(output.read_bytes(), original)
+            self.assertEqual(export.read_text(), 'original projects')
+            with patch('sys.argv', args[:-1] + [str(export)]), patch('reader.read') as read:
+                with self.assertRaises(ValueError):
+                    reader.main()
+                read.assert_not_called()
+
 if __name__ == '__main__': unittest.main()
