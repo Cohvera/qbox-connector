@@ -2,6 +2,9 @@
 import argparse
 import fcntl
 import getpass
+import http.client
+import ipaddress
+import socket
 import json
 import os
 from pathlib import Path
@@ -16,18 +19,52 @@ from reader import save
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / 'data' / 'upload.json'
+DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
 
 
 def validate(config):
-    url = config.get('portal_url', '')
+    url = config.get('portal_url', DEFAULT_PORTAL_URL)
     parts = urllib.parse.urlsplit(url)
     if (parts.scheme != 'https' or not parts.hostname or parts.username or parts.password
             or parts.query or parts.fragment or parts.path not in ('', '/')):
         raise ValueError('Geef alleen het HTTPS-adres van Cohvera, zonder pad of inloggegevens.')
     if not re.fullmatch(r'[A-Za-z0-9_-]{43,128}', config.get('api_key', '')):
         raise ValueError('De importsleutel moet 43–128 letters, cijfers, underscores of streepjes bevatten.')
+    if config.get('connect_ip'):
+        try:
+            ipaddress.ip_address(config['connect_ip'])
+        except ValueError:
+            raise ValueError('Vul een geldig ZeroTier-IP van de Portal-server in, of laat leeg.') from None
     return url.rstrip('/') + ENDPOINT
+
+
+class RoutedHTTPSConnection(http.client.HTTPSConnection):
+    """Connect to the chosen IP while verifying TLS against the URL hostname."""
+    def __init__(self, host, *, connect_ip, **kwargs):
+        super().__init__(host, **kwargs)
+        self.connect_ip = connect_ip
+
+    def connect(self):
+        # No proxy/tunnel: this route is explicitly selected by the operator.
+        sock = socket.create_connection((self.connect_ip, self.port), self.timeout,
+                                        self.source_address)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
+
+
+class RoutedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, connect_ip):
+        super().__init__(context=ssl.create_default_context())
+        self.connect_ip = connect_ip
+
+    def https_open(self, request):
+        def connection(host, **kwargs):
+            return RoutedHTTPSConnection(host, connect_ip=self.connect_ip, **kwargs)
+        return self.do_open(connection, request, context=self._context)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -45,7 +82,11 @@ def upload(config, payload):
         raise ValueError('Geen volledige readerexport v2; niet verstuurd.')
     request = urllib.request.Request(endpoint, data=payload, method='POST', headers={
         'Content-Type':'application/json', 'X-Qbox-Key':config['api_key']})
-    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    if config.get('connect_ip'):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                             RoutedHTTPSHandler(config['connect_ip']))
+    else:
+        opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     try:
         with opener.open(request, timeout=90) as response:
             result = json.loads(response.read(65537))
@@ -116,10 +157,22 @@ WantedBy=timers.target
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['configure', 'run', 'install-timer'])
+    parser.add_argument('--portal-url', help='Optioneel afwijkend HTTPS-adres bij configure')
     args = parser.parse_args()
+    if args.portal_url and args.action != 'configure':
+        parser.error('--portal-url hoort bij configure')
     if args.action == 'configure':
-        config = {'portal_url': input('Cohvera-adres (https://...): ').strip(),
-                  'api_key': getpass.getpass('QBOX_IMPORT_API_KEY (onzichtbaar): ').strip()}
+        existing = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+        portal_url = args.portal_url or existing.get('portal_url') or DEFAULT_PORTAL_URL
+        print(f'Cohvera: {portal_url}')
+        print('ZeroTier-IP = het adres van de Portal-server, niet van deze Q-box. /direct gebruikt internet.')
+        current_ip = existing.get('connect_ip', '')
+        route = input(f'ZeroTier-IP Portal-server [{current_ip or "direct via internet"}]: ').strip()
+        connect_ip = '' if route == '/direct' else (route or current_ip)
+        key = getpass.getpass('Bedrijfs-API-key (onzichtbaar; leeg = bestaande behouden): ').strip()
+        config = {'portal_url': portal_url, 'api_key': key or existing.get('api_key', '')}
+        if connect_ip:
+            config['connect_ip'] = connect_ip
         validate(config)
         CONFIG.parent.mkdir(mode=0o700, exist_ok=True)
         save(CONFIG, config)

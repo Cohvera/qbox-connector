@@ -267,8 +267,32 @@ Update het readerpakket zoals hierboven. Voer daarna als loxberry de uploadconfi
     cd ~/plenion-reader
     ./plenion.sh upload-config
 
-Vul het publieke HTTPS-adres van Cohvera in, zonder /api of ander pad,
-en dezelfde importsleutel. data/upload.json wordt met rechten 600 opgeslagen.
+Het HTTPS-adres is standaard https://portal.cohvera.be; je hoeft het niet in te vullen.
+Een eerder ingesteld afwijkend adres blijft behouden. Vul optioneel het ZeroTier-IP
+van de **Portal-server** in (niet dat van de Q-box), en de bedrijfskey.
+Enter behoudt een bestaande route/key; /direct schakelt terug naar internet.
+Bij een eerste configuratie betekent een lege route direct via internet.
+data/upload.json wordt met rechten 600 opgeslagen.
+
+Vind het ZeroTier-IP op de Portal-server zelf, bijvoorbeeld met:
+
+    ip -4 -o addr show | awk '$2 ~ /^zt/ {print $2, $4}'
+
+Neem alleen het IP over, zonder /24 of ander prefix. Beide machines moeten dat
+ZeroTier-netwerk kunnen bereiken en de Portal-server moet HTTPS op poort 443
+accepteren. De connector verbindt met dat IP, maar houdt portal.cohvera.be als
+HTTP Host en TLS-servernaam: certificaatcontrole blijft ingeschakeld. Bij een
+onbereikbare ZeroTier-route wordt niet automatisch naar internet teruggevallen.
+Meerdere ZeroTier-adressen worden niet automatisch gekozen; kies het netwerk
+waartoe beide machines toegang hebben. Zonder ZeroTier op de Portal-server kun
+je de bestaande directe HTTPS-route blijven gebruiken.
+
+Alleen voor een afwijkende installatie kun je het adres expliciet instellen:
+
+    ./plenion.sh upload-config --portal-url https://ander-portaal.example
+
+Updates veranderen de bestaande timer niet. Een actieve timer blijft elke 15
+minuten de scripts uit dezelfde installatiemap uitvoeren.
 De bestaande HFSQL-configuratie blijft behouden. De API kiest het bedrijf.
 
 Test één volledige export en upload:

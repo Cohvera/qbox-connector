@@ -56,3 +56,45 @@ class SyncTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'401') as error:
                 sync.upload(CONFIG,PAYLOAD)
             self.assertNotIn(CONFIG['api_key'],str(error.exception))
+
+    def test_zerotier_route_keeps_certificate_hostname(self):
+        context = MagicMock()
+        raw_socket = MagicMock()
+        connection = sync.RoutedHTTPSConnection('portal.cohvera.be', connect_ip='10.121.15.99', context=context)
+        with patch('sync.socket.create_connection', return_value=raw_socket) as connect:
+            connection.connect()
+        self.assertEqual(connect.call_args.args[0], ('10.121.15.99',443))
+        context.wrap_socket.assert_called_once_with(raw_socket,server_hostname='portal.cohvera.be')
+        # Certificate failures must propagate, never fall back to plaintext or skip verification.
+        context.wrap_socket.side_effect = sync.ssl.SSLCertVerificationError('test')
+        with patch('sync.socket.create_connection', return_value=raw_socket):
+            with self.assertRaises(sync.ssl.SSLCertVerificationError):
+                connection.connect()
+        raw_socket.close.assert_called_once()
+
+    def test_route_validation_and_default_url(self):
+        self.assertEqual(sync.validate({'api_key':'a'*43}),sync.DEFAULT_PORTAL_URL+sync.ENDPOINT)
+        for value in ['http://10.0.0.1','server.example','10.0.0.1:443','invalid']:
+            with self.assertRaises(ValueError):
+                sync.validate({**CONFIG,'connect_ip':value})
+        self.assertEqual(sync.validate({**CONFIG,'connect_ip':'10.0.0.1'}),CONFIG['portal_url']+sync.ENDPOINT)
+
+    def test_configure_no_url_prompt_and_preserves_existing_key_and_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)/'upload.json'
+            config.write_text(json.dumps({**CONFIG,'connect_ip':'10.0.0.1'}))
+            with patch('sync.CONFIG',config), patch('sys.argv',['sync.py','configure']), patch('builtins.input',return_value='') as prompt, patch('sync.getpass.getpass',return_value=''):
+                sync.main()
+            self.assertEqual(prompt.call_count,1)
+            self.assertEqual(json.loads(config.read_text()),{**CONFIG,'connect_ip':'10.0.0.1'})
+            self.assertEqual(config.stat().st_mode & 0o777,0o600)
+            with patch('sync.CONFIG',config), patch('sys.argv',['sync.py','configure']), patch('builtins.input',return_value='/direct'), patch('sync.getpass.getpass',return_value=''):
+                sync.main()
+            self.assertNotIn('connect_ip',json.loads(config.read_text()))
+
+    def test_new_config_defaults_to_public_portal_and_uses_entered_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config=Path(directory)/'data/upload.json'
+            with patch('sync.CONFIG',config), patch('sys.argv',['sync.py','configure']), patch('builtins.input',return_value='10.0.0.1'), patch('sync.getpass.getpass',return_value='a'*43):
+                sync.main()
+            self.assertEqual(json.loads(config.read_text()),{'portal_url':sync.DEFAULT_PORTAL_URL,'api_key':'a'*43,'connect_ip':'10.0.0.1'})

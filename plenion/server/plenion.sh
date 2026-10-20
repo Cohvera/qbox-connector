@@ -5,7 +5,7 @@ umask 077
 IMAGE=cohvera-plenion-reader:local
 ACTION=${1:-help}
 case "$ACTION" in
-  upload-config) exec python3 sync.py configure ;;
+  upload-config) shift; exec python3 sync.py configure "$@" ;;
   sync) exec python3 sync.py run ;;
   auto-install) exec python3 sync.py install-timer ;;
 
