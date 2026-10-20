@@ -158,7 +158,7 @@ class ReaderTests(unittest.TestCase):
                         reader.main()
                 self.assertEqual(output.read_bytes(), original)
 
-    def test_portal_query_excludes_04_09_roots_but_keeps_their_siblings_offers(self):
+    def test_portal_query_selects_current_07_roots_with_all_their_documents(self):
         # Execute the actual portable SELECT against a fixture, not a rewritten filter.
         import sqlite3
         with sqlite3.connect(':memory:') as db:
@@ -172,13 +172,14 @@ class ReaderTests(unittest.TestCase):
                 ProjectMap INTEGER, BSRTCD INTEGER, VersieNr INTEGER)""")
             # 1 active, 2 lost, 3 invoiced, 4 quote, 5 unknown, 6 orphan.
             records = [(1,1,0),(2,2,0),(3,3,0),(4,4,0),(5,99,0),(6,1,999),
-                       (11,2,1),(12,3,1),(13,1,2),(14,1,3),(15,2,4)]
+                       (7,1,0),(8,1,7),(11,2,1),(12,3,1),(13,1,2),(14,1,3),(15,2,4),
+                       (16,99,1),(17,4,1)]
             for ident, status, parent in records:
                 db.execute("INSERT INTO PROJ VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (ident,str(ident),'Same name','Description',status,
-                            1 if ident == 12 else 0,0,parent,int(parent==0),600,1))
+                            1 if ident in (7,12) else 0,0,parent,int(parent==0),600,1))
             ids = [row[0] for row in db.execute(reader.PORTAL_QUERY)]
-            self.assertEqual(ids,[1,4,5,6,11,12,15])
+            self.assertEqual(ids,[1,11,12,16,17])
             # Lost/invoiced offers of a retained project (including old versions) survive.
             self.assertIn(11,ids)
             self.assertIn(12,ids)
@@ -202,9 +203,9 @@ class ReaderTests(unittest.TestCase):
         self.assertFalse(truncated)
         query = lib.SQLExecDirect.call_args.args[1].decode()
         self.assertIn('LEFT JOIN WERK', query)
-        self.assertNotIn("W.CODE=", query)
+        self.assertIn("W.CODE='07'", query)
         self.assertIn("LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj", query)
-        self.assertIn("MW.CODE NOT IN", query)
+        self.assertIn("MW.CODE='07'", query)
 
     def test_status_lookup_reads_only_project_status_labels(self):
         lib = self.encoded_project_driver(b'unused')

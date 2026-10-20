@@ -21,11 +21,13 @@ PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P
                "FROM PROJ P LEFT JOIN WERK W ON P.STAT=W.WECLEUNIK AND W.TYPE='PRS' "
                "LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj "
                "LEFT JOIN WERK MW ON M.STAT=MW.WECLEUNIK AND MW.TYPE='PRS' "
-               # Filter the root status, never an offer's own status.
-               # Unknown/missing mappings remain in the export for Portal validation.
+               # Select current roots in execution and all their direct documents.
+               # Child status/revision flags do not filter out dossier history.
                "WHERE ((P.IDProjectMap=0 OR P.IDProjectMap IS NULL) "
-               "AND (W.CODE IS NULL OR W.CODE NOT IN ('04','09'))) "
-               "OR (P.IDProjectMap<>0 AND (MW.CODE IS NULL OR MW.CODE NOT IN ('04','09'))) "
+               "AND W.CODE='07' AND P.VersieAf=0) "
+               "OR (P.IDProjectMap<>0 AND M.ProjectMap=1 "
+               "AND (M.IDProjectMap=0 OR M.IDProjectMap IS NULL) "
+               "AND MW.CODE='07' AND M.VersieAf=0) "
                "ORDER BY P.IDProj")
 STATUS_FIELDS = ('status_id', 'code', 'label')
 STATUSES_QUERY = "SELECT WECLEUNIK,CODE,OMSCHR1 FROM WERK WHERE TYPE='PRS' ORDER BY WECLEUNIK"

@@ -211,12 +211,14 @@ Dit commando wijzigt nog geen projectselectie en uploadt niets naar Portal.
 Voer `sudo ./plenion.sh portal` uit. Het resultaat staat in
 `data/portal-projects.json`. Dit bestand bevat de geselecteerde projectrecords met de
 status-ID, code, omschrijving, VersieAf, UITWIP, IDProjectMap, ProjectMap,
-BSRTCD en VersieNr (schema_version 2). De reader kiest geen bedrijf. De portal-query sluit hoofdprojecten met
-statuscode 04 of 09 uit, inclusief hun onderliggende records. Offertes van een
-behouden hoofdproject blijven aanwezig, ook met eigen status 04/09 of als
-historische versie. Onbekende status- en projectmapkoppelingen blijven behouden
-voor validatie in Cohvera. Dit vaste bronfilter geldt voor iedere Q-box waarop
-deze readerversie draait; Cohvera past daarna het bedrijfsprofiel toe.
+BSRTCD en VersieNr (schema_version 2). De reader kiest geen bedrijf. De portal-query haalt uitsluitend actuele
+hoofdrecords op met statuscode 07 (VersieAf=0, geen bovenliggende projectmap).
+Daarnaast komen alle direct gekoppelde records van die projectmappen mee,
+ongeacht hun eigen status of historische versie. Hoofdprojecten met een andere
+of onbekende status, historische hoofdversies en hun onderliggende records
+worden niet opgehaald. Dit vaste bronfilter geldt voor iedere Q-box waarop deze
+readerversie draait; Cohvera valideert daarna de selectie en koppelingen opnieuw.
+Voor bedrijven met andere statusafspraken moet ook dit bronfilter worden aangepast.
 De opdrachten read en audit blijven alle records uitlezen. De bestaande basisexport blijft behouden.
 
 Kopieer het bestand naar je Mac:
