@@ -158,7 +158,35 @@ class ReaderTests(unittest.TestCase):
                         reader.main()
                 self.assertEqual(output.read_bytes(), original)
 
-    def test_portal_export_has_no_company_or_status_filter(self):
+    def test_portal_query_excludes_04_09_roots_but_keeps_their_siblings_offers(self):
+        # Execute the actual portable SELECT against a fixture, not a rewritten filter.
+        import sqlite3
+        with sqlite3.connect(':memory:') as db:
+            db.execute("CREATE TABLE WERK (WECLEUNIK INTEGER, CODE TEXT, OMSCHR1 TEXT, TYPE TEXT)")
+            db.executemany("INSERT INTO WERK VALUES (?,?,?,?)", [
+                (1,'07','In uitvoering','PRS'), (2,'04','Verloren','PRS'),
+                (3,'09','Gefactureerd','PRS'), (4,'02','Offerte','PRS')])
+            db.execute("""CREATE TABLE PROJ (
+                IDProj INTEGER, projnr TEXT, Naam TEXT, oms TEXT, STAT INTEGER,
+                VersieAf INTEGER, UITWIP INTEGER, IDProjectMap INTEGER,
+                ProjectMap INTEGER, BSRTCD INTEGER, VersieNr INTEGER)""")
+            # 1 active, 2 lost, 3 invoiced, 4 quote, 5 unknown, 6 orphan.
+            records = [(1,1,0),(2,2,0),(3,3,0),(4,4,0),(5,99,0),(6,1,999),
+                       (11,2,1),(12,3,1),(13,1,2),(14,1,3),(15,2,4)]
+            for ident, status, parent in records:
+                db.execute("INSERT INTO PROJ VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                           (ident,str(ident),'Same name','Description',status,
+                            1 if ident == 12 else 0,0,parent,int(parent==0),600,1))
+            ids = [row[0] for row in db.execute(reader.PORTAL_QUERY)]
+            self.assertEqual(ids,[1,4,5,6,11,12,15])
+            # Lost/invoiced offers of a retained project (including old versions) survive.
+            self.assertIn(11,ids)
+            self.assertIn(12,ids)
+            # A child's active status cannot reintroduce an excluded parent.
+            self.assertNotIn(13,ids)
+            self.assertNotIn(14,ids)
+
+    def test_portal_export_uses_root_status_filter_without_company(self):
         lib = self.encoded_project_driver(b'unused')
         lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 13) or 0)
         values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0', b'0', b'1', b'600', b'1']
@@ -175,7 +203,8 @@ class ReaderTests(unittest.TestCase):
         query = lib.SQLExecDirect.call_args.args[1].decode()
         self.assertIn('LEFT JOIN WERK', query)
         self.assertNotIn("W.CODE=", query)
-        self.assertNotIn("WHERE", query)
+        self.assertIn("LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj", query)
+        self.assertIn("MW.CODE NOT IN", query)
 
     def test_status_lookup_reads_only_project_status_labels(self):
         lib = self.encoded_project_driver(b'unused')
