@@ -149,7 +149,7 @@ class ReaderTests(unittest.TestCase):
             with patch('sys.argv', args), patch('reader.read', return_value=([row], False)):
                 reader.main()
             saved = json.loads(output.read_text())
-            self.assertEqual(saved['schema_version'], 2)
+            self.assertEqual(saved['schema_version'], 3)
             self.assertEqual(saved['projects'][0], row)
             original = output.read_bytes()
             for field in ('revision_closed', 'out_of_wip', 'is_project_map'):
@@ -158,7 +158,7 @@ class ReaderTests(unittest.TestCase):
                         reader.main()
                 self.assertEqual(output.read_bytes(), original)
 
-    def test_portal_query_selects_current_07_roots_with_all_their_documents(self):
+    def test_portal_query_keeps_all_statuses_and_closed_roots_with_documents(self):
         # Execute the actual portable SELECT against a fixture, not a rewritten filter.
         import sqlite3
         with sqlite3.connect(':memory:') as db:
@@ -169,28 +169,28 @@ class ReaderTests(unittest.TestCase):
             db.execute("""CREATE TABLE PROJ (
                 IDProj INTEGER, projnr TEXT, Naam TEXT, oms TEXT, STAT INTEGER,
                 VersieAf INTEGER, UITWIP INTEGER, IDProjectMap INTEGER,
-                ProjectMap INTEGER, BSRTCD INTEGER, VersieNr INTEGER)""")
+                ProjectMap INTEGER, BSRTCD INTEGER, VersieNr INTEGER, DatCre TEXT, CDATUM TEXT, DatumPlanning TEXT, Deadline TEXT, Oplevering TEXT, StatDat TEXT, DATUMUITWIP TEXT, DatumVerkocht TEXT, FAK_FakNr TEXT, FAK_CDatum TEXT, FAK_AfDatum TEXT)""")
             # 1 active, 2 lost, 3 invoiced, 4 quote, 5 unknown, 6 orphan.
             records = [(1,1,0),(2,2,0),(3,3,0),(4,4,0),(5,99,0),(6,1,999),
                        (7,1,0),(8,1,7),(11,2,1),(12,3,1),(13,1,2),(14,1,3),(15,2,4),
                        (16,99,1),(17,4,1)]
             for ident, status, parent in records:
-                db.execute("INSERT INTO PROJ VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO PROJ (IDProj,projnr,Naam,oms,STAT,VersieAf,UITWIP,IDProjectMap,ProjectMap,BSRTCD,VersieNr) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (ident,str(ident),'Same name','Description',status,
-                            1 if ident in (7,12) else 0,0,parent,int(parent==0),600,1))
+                            1 if ident in (7,12) else 0,1 if ident==3 else 0,parent,int(parent==0),600,1))
             ids = [row[0] for row in db.execute(reader.PORTAL_QUERY)]
-            self.assertEqual(ids,[1,11,12,16,17])
+            self.assertEqual(ids,[1,2,3,4,5,11,12,13,14,15,16,17])
             # Lost/invoiced offers of a retained project (including old versions) survive.
             self.assertIn(11,ids)
             self.assertIn(12,ids)
-            # A child's active status cannot reintroduce an excluded parent.
-            self.assertNotIn(13,ids)
-            self.assertNotIn(14,ids)
+            # Lost and invoiced parents remain available to Portal.
+            self.assertIn(13,ids)
+            self.assertIn(14,ids)
 
-    def test_portal_export_uses_root_status_filter_without_company(self):
+    def test_portal_export_has_no_status_or_company_filter(self):
         lib = self.encoded_project_driver(b'unused')
-        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', 13) or 0)
-        values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0', b'0', b'1', b'600', b'1']
+        lib.SQLNumResultCols.side_effect = lambda stmt, count: (setattr(count._obj, 'value', len(reader.PORTAL_FIELDS)) or 0)
+        values = [b'12', b'123', b'Name', b'Description', b'31698', b'02', b'02 - Offerte', b'0', b'0', b'0', b'1', b'600', b'1'] + [b''] * 11
         def field(stmt, index, kind, buf, length, size):
             buf.value = values[index - 1]
             size._obj.value = len(buf.value)
@@ -203,9 +203,9 @@ class ReaderTests(unittest.TestCase):
         self.assertFalse(truncated)
         query = lib.SQLExecDirect.call_args.args[1].decode()
         self.assertIn('LEFT JOIN WERK', query)
-        self.assertIn("W.CODE='07'", query)
+        self.assertNotIn("W.CODE='07'", query)
         self.assertIn("LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj", query)
-        self.assertIn("MW.CODE='07'", query)
+        self.assertIn("P.ProjectMap=1", query)
 
     def test_status_lookup_reads_only_project_status_labels(self):
         lib = self.encoded_project_driver(b'unused')

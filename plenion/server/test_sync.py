@@ -33,6 +33,14 @@ class SyncTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 sync.upload(CONFIG,PAYLOAD)
 
+    def test_v3_export_is_uploaded(self):
+        payload = json.dumps({'source':'plenion_reader_projects','schema_version':3,'truncated':False}).encode()
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value.read.return_value = b'{"accepted":true}'
+        with patch('sync.urllib.request.build_opener', return_value=opener):
+            self.assertTrue(sync.upload(CONFIG,payload)['accepted'])
+        self.assertEqual(opener.open.call_args.args[0].data,payload)
+
     def test_failed_read_never_uploads_previous_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -77,9 +77,9 @@ def upload(config, payload):
     if len(payload) > 20 * 1024 * 1024:
         raise ValueError('Export groter dan 20 MB; niet verstuurd.')
     data = json.loads(payload)
-    if (data.get('source') != 'plenion_reader_projects' or data.get('schema_version') != 2
+    if (data.get('source') != 'plenion_reader_projects' or data.get('schema_version') not in (2, 3)
             or data.get('truncated') is not False):
-        raise ValueError('Geen volledige readerexport v2; niet verstuurd.')
+        raise ValueError('Geen volledige readerexport v2/v3; niet verstuurd.')
     request = urllib.request.Request(endpoint, data=payload, method='POST', headers={
         'Content-Type':'application/json', 'X-Qbox-Key':config['api_key']})
     if config.get('connect_ip'):

@@ -211,15 +211,22 @@ Dit commando wijzigt nog geen projectselectie en uploadt niets naar Portal.
 Voer `sudo ./plenion.sh portal` uit. Het resultaat staat in
 `data/portal-projects.json`. Dit bestand bevat de geselecteerde projectrecords met de
 status-ID, code, omschrijving, VersieAf, UITWIP, IDProjectMap, ProjectMap,
-BSRTCD en VersieNr (schema_version 2). De reader kiest geen bedrijf. De portal-query haalt uitsluitend actuele
-hoofdrecords op met statuscode 07 (VersieAf=0, geen bovenliggende projectmap).
-Daarnaast komen alle direct gekoppelde records van die projectmappen mee,
-ongeacht hun eigen status of historische versie. Hoofdprojecten met een andere
-of onbekende status, historische hoofdversies en hun onderliggende records
-worden niet opgehaald. Dit vaste bronfilter geldt voor iedere Q-box waarop deze
-readerversie draait; Cohvera valideert daarna de selectie en koppelingen opnieuw.
-Voor bedrijven met andere statusafspraken moet ook dit bronfilter worden aangepast.
-De opdrachten read en audit blijven alle records uitlezen. De bestaande basisexport blijft behouden.
+BSRTCD en VersieNr (schema_version 3). De reader kiest geen bedrijf of statusfilter.
+De query haalt actuele hoofdprojectmappen op (ProjectMap=1, VersieAf=0, geen parent)
+en al hun direct gekoppelde records, ongeacht status en Uit WIP. Historische
+hoofdversies, losse records zonder projectmap en wezen worden niet geselecteerd.
+Historische versies van gekoppelde documenten blijven wel behouden.
+
+Ook DatCre, CDATUM, DatumPlanning, Deadline, Oplevering, StatDat, DATUMUITWIP,
+DatumVerkocht, FAK_FakNr, FAK_CDatum en FAK_AfDatum worden meegestuurd. Portal toont
+bronwaarden zonder een werkelijke start, betaling of garantie-einde te veronderstellen.
+De bestaande basisexport blijft behouden. De limiet blijft 20.000 records / 20 MB;
+een afgekapt resultaat wordt niet geüpload. Een fout behoudt de vorige import.
+
+Update **eerst Portal inclusief de migratie en API/web**, daarna deze reader.
+Portal moet v3 ondersteunen. De eerste v3-import vormt een uitgangssituatie;
+volgende imports registreren verschillen onder Updates. Downgraden naar v2 na
+v3 wordt door Portal geweigerd. De bestaande 15-minutentimer blijft actief.
 
 Kopieer het bestand naar je Mac:
 ```sh
@@ -254,9 +261,8 @@ Cohvera bepaalt het bedrijf uit die sleutel, niet uit het JSON-bestand.
 QBOX_IMPORT_API_KEY met QBOX_IMPORT_COMPANY blijft optioneel beschikbaar voor oudere
 connectoren. Behoud die instellingen zolang een bestaande connector ze gebruikt.
 Gebruik een sleutel nooit voor verschillende bedrijven; Cohvera weigert die configuratie.
-Alleen QHOME heeft momenteel een reader-importprofiel (status 07). Sleutels voor
-TOMME en WARCO geven niet automatisch een statusprofiel; die bedrijfsregels moeten
-eerst in Portal worden ingesteld. Sleutelwijzigingen vereisen een nieuwe API-container.
+QHOME en WARCO hebben een reader-importprofiel; uitvoering is code 07. Voor TOMME
+moeten de bedrijfsregels eerst in Portal worden ingesteld. Sleutelwijzigingen vereisen een nieuwe API-container.
 Bouw de bijgewerkte Portal API en hermaak de container om de env te laden:
 
     cd /root/Portal
