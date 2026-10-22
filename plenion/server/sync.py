@@ -91,7 +91,18 @@ def upload(config, payload):
         with opener.open(request, timeout=90) as response:
             result = json.loads(response.read(65537))
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f'Cohvera weigert de import (HTTP {error.code}). Controleer sleutel, doelbedrijf en API-log.') from None
+        detail = ''
+        try:
+            body = json.loads(error.read(8192)) if error.fp is not None else {}
+            message = body.get('message') if isinstance(body, dict) else None
+            if isinstance(message, list):
+                message = '; '.join(item for item in message if isinstance(item, str))
+            if isinstance(message, str):
+                detail = ' '.join(message.replace(config['api_key'], '[afgeschermd]').split())[:500]
+        except (ValueError, OSError, AttributeError):
+            pass
+        raise RuntimeError(f'Cohvera weigert de import (HTTP {error.code}). ' +
+                           (detail or 'Geen detail ontvangen; controleer de API-log.')) from None
     except (urllib.error.URLError, TimeoutError):
         raise RuntimeError('Cohvera niet bereikbaar of TLS-controle mislukt. Vorige import blijft behouden.') from None
     if result.get('accepted') is not True:

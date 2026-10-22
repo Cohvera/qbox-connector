@@ -33,6 +33,16 @@ class SyncTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 sync.upload(CONFIG,PAYLOAD)
 
+    def test_validation_error_shows_message_but_never_key(self):
+        import io
+        opener = MagicMock()
+        opener.open.side_effect = urllib.error.HTTPError('https://portal.example', 400, '', {},
+            io.BytesIO(json.dumps({'message':'Ongeldige brondatum: created_date '+CONFIG['api_key']}).encode()))
+        with patch('sync.urllib.request.build_opener', return_value=opener):
+            with self.assertRaisesRegex(RuntimeError, 'Ongeldige brondatum') as error:
+                sync.upload(CONFIG, PAYLOAD)
+        self.assertNotIn(CONFIG['api_key'], str(error.exception))
+
     def test_v3_export_is_uploaded(self):
         payload = json.dumps({'source':'plenion_reader_projects','schema_version':3,'truncated':False}).encode()
         opener = MagicMock()
