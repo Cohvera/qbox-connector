@@ -20,10 +20,10 @@ PORTAL_FIELDS = ('source_id', 'number', 'name', 'description', 'status_id', 'sta
 PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P.VersieAf,P.UITWIP,P.IDProjectMap,P.ProjectMap,P.BSRTCD,P.VersieNr,P.DatCre,P.CDATUM,P.DatumPlanning,P.Deadline,P.Oplevering,P.StatDat,P.DATUMUITWIP,P.DatumVerkocht,P.FAK_FakNr,P.FAK_CDatum,P.FAK_AfDatum "
                "FROM PROJ P LEFT JOIN WERK W ON P.STAT=W.WECLEUNIK AND W.TYPE='PRS' "
                "LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj "
-               # Keep current top-level records, including standalone projects without ProjectMap.
+               # Keep all current project folders and their documents, including invoiced/closed records.
                # Child status/revision flags do not filter out dossier history.
                "WHERE ((P.IDProjectMap=0 OR P.IDProjectMap IS NULL) "
-               "AND P.VersieAf=0) "
+               "AND P.ProjectMap=1 AND P.VersieAf=0) "
                "OR (P.IDProjectMap<>0 AND M.ProjectMap=1 "
                "AND (M.IDProjectMap=0 OR M.IDProjectMap IS NULL) "
                "AND M.VersieAf=0) "

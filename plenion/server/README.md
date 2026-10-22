@@ -212,9 +212,9 @@ Voer `sudo ./plenion.sh portal` uit. Het resultaat staat in
 `data/portal-projects.json`. Dit bestand bevat de geselecteerde projectrecords met de
 status-ID, code, omschrijving, VersieAf, UITWIP, IDProjectMap, ProjectMap,
 BSRTCD en VersieNr (schema_version 3). De reader kiest geen bedrijf of statusfilter.
-De query haalt actuele records zonder parent op (VersieAf=0), ook zelfstandige projecten zonder ProjectMap-vinkje,
+De query haalt actuele hoofdprojectmappen op (ProjectMap=1, VersieAf=0, geen parent)
 en al hun direct gekoppelde records, ongeacht status en Uit WIP. Historische
-hoofdversies en wezen worden niet geselecteerd.
+hoofdversies, losse records zonder projectmap en wezen worden niet geselecteerd.
 Historische versies van gekoppelde documenten blijven wel behouden.
 
 Ook DatCre, CDATUM, DatumPlanning, Deadline, Oplevering, StatDat, DATUMUITWIP,

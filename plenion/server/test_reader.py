@@ -173,13 +173,13 @@ class ReaderTests(unittest.TestCase):
             # 1 active, 2 lost, 3 invoiced, 4 quote, 5 unknown, 6 orphan.
             records = [(1,1,0),(2,2,0),(3,3,0),(4,4,0),(5,99,0),(6,1,999),
                        (7,1,0),(8,1,7),(11,2,1),(12,3,1),(13,1,2),(14,1,3),(15,2,4),
-                       (16,99,1),(17,4,1),(18,1,0)]
+                       (16,99,1),(17,4,1)]
             for ident, status, parent in records:
                 db.execute("INSERT INTO PROJ (IDProj,projnr,Naam,oms,STAT,VersieAf,UITWIP,IDProjectMap,ProjectMap,BSRTCD,VersieNr) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (ident,str(ident),'Same name','Description',status,
-                            1 if ident in (7,12) else 0,1 if ident==3 else 0,parent,int(parent==0 and ident!=18),600,1))
+                            1 if ident in (7,12) else 0,1 if ident==3 else 0,parent,int(parent==0),600,1))
             ids = [row[0] for row in db.execute(reader.PORTAL_QUERY)]
-            self.assertEqual(ids,[1,2,3,4,5,11,12,13,14,15,16,17,18])
+            self.assertEqual(ids,[1,2,3,4,5,11,12,13,14,15,16,17])
             # Lost/invoiced offers of a retained project (including old versions) survive.
             self.assertIn(11,ids)
             self.assertIn(12,ids)
@@ -205,7 +205,7 @@ class ReaderTests(unittest.TestCase):
         self.assertIn('LEFT JOIN WERK', query)
         self.assertNotIn("W.CODE='07'", query)
         self.assertIn("LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj", query)
-        self.assertNotIn("P.ProjectMap=1", query)
+        self.assertIn("P.ProjectMap=1", query)
 
     def test_status_lookup_reads_only_project_status_labels(self):
         lib = self.encoded_project_driver(b'unused')
