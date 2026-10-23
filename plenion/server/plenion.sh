@@ -45,7 +45,7 @@ case "$ACTION" in
     echo 'Installatie klaar. Volgende stap als loxberry: ./plenion.sh configure'
     exit
     ;;
-  check|test|read|databases|tables|columns|audit|statuses|portal) ;;
+  schema|check|test|read|databases|tables|columns|audit|statuses|portal) ;;
   *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | portal | audit STATUSKOLOM | check | test | read | upload-config | sync | auto-install'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
@@ -61,6 +61,8 @@ if [ "$ACTION" = audit ]; then
     exit 1
   fi
   set -- --mode audit --status-column "$2"
+elif [ "$ACTION" = schema ]; then
+  set -- --mode columns --table PROJ --output /data/hfsql-schema.json
 elif [ "$ACTION" = columns ]; then
   if [ "$#" -gt 2 ]; then
     echo 'Gebruik: ./plenion.sh columns [TABEL]' >&2

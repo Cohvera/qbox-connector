@@ -24,7 +24,7 @@ CONFIG = ROOT / 'data' / 'upload.json'
 DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
 STATUS_ENDPOINT = '/api/integrations/qbox/reader-status'
-READER_VERSION = '3.1'
+READER_VERSION = '3.3'
 
 
 def validate(config):
@@ -104,7 +104,7 @@ def report_status(config, run_id, phase, record_count=None, http_status=None):
             try:
                 if (isinstance(e, dict) and
                         0 <= (now - datetime.fromisoformat(e['observedAt'])).total_seconds() < 29 * 86400 and
-                        e['phase'] in ('started', 'read_ok', 'read_failed', 'upload_failed', 'success') and
+                        e['phase'] in ('started', 'read_ok', 'configuration_failed', 'read_failed', 'upload_failed', 'success') and
                         str(uuid.UUID(e['runId'], version=4)) == e['runId'] and
                         re.fullmatch(r'[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?', e['readerVersion'])):
                     events.append({k: e[k] for k in ('runId', 'phase', 'observedAt', 'readerVersion', 'recordCount', 'httpStatus') if k in e})
@@ -167,6 +167,45 @@ def upload(config, payload):
     return result
 
 
+def fetch_reader_options(config, applied_revision=None):
+    schema_path = ROOT / 'data' / 'hfsql-schema.json'
+    # Query column metadata only; no extra project contents are read here.
+    if not schema_path.exists() or datetime.now().timestamp() - schema_path.stat().st_mtime > 86400:
+        subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'schema'], check=True, timeout=60)
+    schema = json.loads(schema_path.read_text())
+    statuses_path = ROOT / 'data' / 'project-statuses.json'
+    if not statuses_path.exists() or datetime.now().timestamp() - statuses_path.stat().st_mtime > 86400:
+        subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'statuses'], check=True, timeout=60)
+    statuses = [{'code': str(s.get('code') or '').strip(), 'label': str(s.get('label') or '').replace('\x00', '').strip()}
+                for s in json.loads(statuses_path.read_text())['statuses']
+                if re.fullmatch(r'[A-Za-z0-9_-]{1,30}', str(s.get('code') or '').strip())]
+    body = {'columns': schema['columns'], 'readerVersion': READER_VERSION, 'statuses': statuses}
+    if applied_revision is not None:
+        body['appliedRevision'] = applied_revision
+    endpoint = validate(config).removesuffix(ENDPOINT) + '/api/integrations/qbox/reader-config'
+    request = urllib.request.Request(endpoint, data=json.dumps(body).encode(), method='POST',
+        headers={'Content-Type': 'application/json', 'X-Qbox-Key': config['api_key']})
+    with portal_opener(config).open(request, timeout=10) as response:
+        options = json.loads(response.read(65536))
+    from reader import portal_selection, project_filter
+    _, _, chosen = portal_selection(options)
+    selection = project_filter(options.get('projectFilter'))
+    if selection and any(c not in {s['code'] for s in statuses} for c in selection['statusCodes']):
+        raise ValueError('Gekozen status ontbreekt in Plenion; export gestopt.')
+    if type(options.get('revision')) is not int or options['revision'] < 0:
+        raise ValueError('Ongeldige configuratieversie van Portal.')
+    available = {c.lower() for c in schema['columns']}
+    if any(c.lower() not in available for c in chosen):
+        raise ValueError('Geselecteerde HFSQL-kolom ontbreekt; export gestopt.')
+    # Docker uses the connection-file owner, even when this process runs as root.
+    path = ROOT / 'data' / 'reader-options.json'
+    save(path, {'revision': options['revision'], 'selectedColumns': chosen, 'projectFilter': selection})
+    owner = (ROOT / 'data' / 'connection.json').stat()
+    if os.geteuid() == 0:
+        os.chown(path, owner.st_uid, owner.st_gid)
+    return options
+
+
 def sync():
     # A failed new read must never upload the previous file.
     config = json.loads(CONFIG.read_text())
@@ -179,20 +218,28 @@ def sync():
             return
         run_id = str(uuid.uuid4())
         report_status(config, run_id, 'started')
-        stage = 'read'
+        stage = 'configuration'
         try:
+            applied_path = ROOT / 'data' / 'applied-reader-options.json'
+            applied = json.loads(applied_path.read_text()).get('revision') if applied_path.exists() else None
+            options = fetch_reader_options(config, applied)
+            stage = 'read'
             subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'portal'], check=True, timeout=180)
             payload = (ROOT / 'data' / 'portal-projects.json').read_bytes()
             record_count = json.loads(payload).get('count')
             report_status(config, run_id, 'read_ok', record_count=record_count)
             stage = 'upload'
             result = upload(config, payload)
+            try:
+                save(applied_path, {'revision': options['revision']})
+            except OSError:
+                print('Import gelukt, maar de toegepaste configuratieversie kon niet lokaal worden bewaard.', flush=True)
             report_status(config, run_id, 'success', record_count=record_count)
             print(f'Cohvera bevestigt {result.get("count", 0)} projecten en '
                   f'{result.get("documentCount", 0)} onderliggende records voor {result.get("companyCode", "onbekend")}.', flush=True)
         except Exception as error:
-            report_status(config, run_id, 'read_failed' if stage == 'read' else 'upload_failed',
-                          http_status=error.status if isinstance(error, UploadRejected) else None)
+            report_status(config, run_id, {'configuration':'configuration_failed','read':'read_failed','upload':'upload_failed'}[stage],
+                          http_status=error.status if isinstance(error, UploadRejected) else error.code if isinstance(error, urllib.error.HTTPError) else None)
             raise
 
 
@@ -215,7 +262,7 @@ User=root
 WorkingDirectory={ROOT}
 ExecStart=/usr/bin/python3 {ROOT}/sync.py run
 UMask=0077
-TimeoutStartSec=300
+TimeoutStartSec=480
 """)
     (unit_dir / 'cohvera-reader-sync.timer').write_text("""[Unit]
 Description=Plenion-projecten elke 15 minuten synchroniseren

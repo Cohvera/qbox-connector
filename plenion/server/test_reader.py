@@ -249,4 +249,54 @@ class ReaderTests(unittest.TestCase):
                     reader.main()
                 read.assert_not_called()
 
+
+    def test_extra_columns_do_not_change_selection_or_required_fields(self):
+        query, names, columns = reader.portal_selection({'selectedColumns':['MEMO','A_PC']})
+        self.assertEqual(query.split(' FROM ',1)[1],reader.PORTAL_QUERY.split(' FROM ',1)[1])
+        self.assertEqual(names[:len(reader.PORTAL_FIELDS)],reader.PORTAL_FIELDS)
+        self.assertEqual(columns,['A_PC','MEMO'])
+        self.assertIn(',P.A_PC,P.MEMO FROM ',query)
+        self.assertEqual(reader.portal_selection({})[0],reader.PORTAL_QUERY)
+        for invalid in [['*'],['IDProj; DROP TABLE PROJ'],['MEMO','MEMO'],['APP_Paswoord']]:
+            with self.assertRaises(ValueError):
+                reader.portal_selection({'selectedColumns':invalid})
+
+    def test_extra_values_are_nested_in_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            config=root/'connection.json';config.write_text('{}')
+            (root/'reader-options.json').write_text('{"selectedColumns":["MEMO"]}')
+            output=root/'export.json'
+            row={'revision_closed':'0','out_of_wip':'0','is_project_map':'1','extra_MEMO':'notitie'}
+            with patch('sys.argv',['reader.py','--worker','--mode','portal','--config',str(config),'--output',str(output)]),patch('reader.read',return_value=([row],False)):
+                reader.main()
+            exported=json.loads(output.read_text())
+            self.assertEqual(exported['projects'][0]['extra_fields'],{'MEMO':'notitie'})
+            self.assertNotIn('extra_MEMO',exported['projects'][0])
+
+
+
+    def test_status_and_wip_filter_roots_but_preserve_all_children(self):
+        import sqlite3
+        import re
+        db=sqlite3.connect(':memory:')
+        columns=set(re.findall(r'[PM]\.([A-Za-z0-9_]+)',reader.PORTAL_QUERY))
+        integer={'IDProj','IDProjectMap','ProjectMap','VersieAf','UITWIP','STAT'}
+        db.execute('CREATE TABLE PROJ ('+','.join(c+(' INTEGER' if c in integer else ' TEXT') for c in columns)+')')
+        db.execute('CREATE TABLE WERK (WECLEUNIK INTEGER, CODE TEXT, OMSCHR1 TEXT, TYPE TEXT)')
+        db.executemany('INSERT INTO WERK VALUES (?,?,?,?)',[(100,'07','Uitvoering','PRS'),(200,'09','Gefactureerd','PRS')])
+        db.executemany('INSERT INTO PROJ (IDProj,IDProjectMap,ProjectMap,VersieAf,UITWIP,STAT) VALUES (?,?,?,?,?,?)',[
+            (1,0,1,0,0,100),(2,0,1,0,1,200),(3,0,1,0,1,100),
+            (11,1,0,1,1,200),(12,2,0,0,0,100),(13,3,0,0,0,200),
+            (20,999,0,0,0,100),(21,0,0,0,0,100)])
+        for codes,wip,expected in [(['07'],'off',[1,11]),(['09'],'any',[2,12]),([], 'on',[2,3,12,13]),(['07','09'],'off',[1,11]),([], 'any',[1,2,3,11,12,13])]:
+            query,_,_=reader.portal_selection({'projectFilter':{'statusCodes':codes,'outOfWip':wip}})
+            self.assertEqual([r[0] for r in db.execute(query)],expected)
+        db.close()
+
+    def test_project_filter_rejects_sql_and_ambiguous_flags(self):
+        for value in [{'statusCodes':["07'); DELETE"],'outOfWip':'any'}, {'statusCodes':['07','07'],'outOfWip':'off'}, {'statusCodes':[],'outOfWip':True}, {'statusCodes':'07','outOfWip':'any'}]:
+            with self.assertRaises(ValueError):reader.project_filter(value)
+        self.assertIsNone(reader.project_filter({'statusCodes':[],'outOfWip':'any'}))
+
 if __name__ == '__main__': unittest.main()

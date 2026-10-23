@@ -58,7 +58,7 @@ class SyncTests(unittest.TestCase):
             config = root/'data/upload.json'
             config.write_text(json.dumps(CONFIG))
             (root/'data/portal-projects.json').write_bytes(PAYLOAD)
-            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=subprocess.CalledProcessError(1,'reader')), patch('sync.report_status'), patch('sync.upload') as upload:
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=subprocess.CalledProcessError(1,'reader')), patch('sync.report_status'), patch('sync.fetch_reader_options',return_value={'revision':2}), patch('sync.upload') as upload:
                 with self.assertRaises(subprocess.CalledProcessError):
                     sync.sync()
                 upload.assert_not_called()
@@ -158,11 +158,53 @@ class SyncTests(unittest.TestCase):
             config = root/'data/upload.json'
             config.write_text(json.dumps(CONFIG))
             (root/'data/portal-projects.json').write_bytes(PAYLOAD)
-            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.upload',return_value={'accepted':True}):
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.fetch_reader_options',return_value={'revision':2}), patch('sync.upload',return_value={'accepted':True}):
                 sync.sync()
                 self.assertEqual([c.args[2] for c in report.call_args_list],['started','read_ok','success'])
-            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.upload',side_effect=sync.UploadRejected('rejected',400)):
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.fetch_reader_options',return_value={'revision':2}), patch('sync.upload',side_effect=sync.UploadRejected('rejected',400)):
                 with self.assertRaises(sync.UploadRejected):
                     sync.sync()
                 self.assertEqual(report.call_args.args[2],'upload_failed')
                 self.assertEqual(report.call_args.kwargs['http_status'],400)
+
+    def test_options_are_validated_against_catalog_and_actual_schema_before_saving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'data').mkdir()
+            (root/'data/connection.json').write_text('{}')
+            (root/'data/hfsql-schema.json').write_text(json.dumps({'columns':['IDProj','memo']}))
+            (root/'data/project-statuses.json').write_text(json.dumps({'statuses':[{'code':'07','label':'In uitvoering'}]}))
+            opener=MagicMock()
+            response=opener.open.return_value.__enter__.return_value
+            with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener), patch('sync.subprocess.run') as process:
+                response.read.return_value=json.dumps({'revision':4,'selectedColumns':['MEMO']}).encode()
+                sync.fetch_reader_options(CONFIG,3)
+                process.assert_not_called()
+                request=opener.open.call_args.args[0]
+                self.assertEqual(json.loads(request.data)['appliedRevision'],3)
+                self.assertNotIn(CONFIG['api_key'],request.data.decode())
+                saved=(root/'data/reader-options.json').read_bytes()
+                self.assertEqual(json.loads(saved)['selectedColumns'],['MEMO'])
+                response.read.return_value=json.dumps({'revision':5,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':['07'],'outOfWip':'off'}}).encode()
+                sync.fetch_reader_options(CONFIG)
+                saved=(root/'data/reader-options.json').read_bytes()
+                self.assertEqual(json.loads(saved)['projectFilter'],{'statusCodes':['07'],'outOfWip':'off'})
+                response.read.return_value=json.dumps({'revision':6,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':['09'],'outOfWip':'off'}}).encode()
+                with self.assertRaises(ValueError):sync.fetch_reader_options(CONFIG)
+                for selected in [['A_PC'],['MEMO;DELETE'],['APP_Paswoord']]:
+                    response.read.return_value=json.dumps({'revision':5,'selectedColumns':selected}).encode()
+                    with self.assertRaises(ValueError):
+                        sync.fetch_reader_options(CONFIG)
+                    self.assertEqual((root/'data/reader-options.json').read_bytes(),saved)
+
+    def test_unreachable_configuration_never_uploads_stale_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'data').mkdir()
+            config=root/'data/upload.json'
+            config.write_text(json.dumps(CONFIG))
+            (root/'data/portal-projects.json').write_bytes(PAYLOAD)
+            with patch('sync.ROOT',root),patch('sync.CONFIG',config),patch('sync.report_status'),patch('sync.fetch_reader_options',side_effect=OSError('offline')),patch('sync.upload') as upload:
+                with self.assertRaises(OSError):
+                    sync.sync()
+                upload.assert_not_called()

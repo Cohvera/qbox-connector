@@ -355,4 +355,6 @@ Een al geïnstalleerde timer blijft de bijgewerkte `sync.py` elke 15 minuten uit
 
 Statusmeldingen gebruiken `POST /api/integrations/qbox/reader-status`. Bij uitval bewaart `data/reader-status-outbox.json` maximaal 100 meldingen voor een latere poging (maximaal 29 dagen). Mislukte statusrapportage blokkeert de projectupload niet. De melding bevat uitsluitend een poging-ID, stap, tijdstip, readerversie, eventueel recordaantal en HTTP-status. Volledige driveruitvoer blijft lokaal in het servicejournaal. `portal` alleen maakt een export; statusrapportage hoort bij `sync`.
 
-Het portaal toont de huidige vaste exportkolommen ter voorbereiding van latere kolomselectie. De query, filters en exportvelden worden door deze monitoringwijziging niet aangepast.
+Reader 3.2 ondersteunt extra kolomselectie per bedrijf via Middleware. De 24 basisvelden en de bestaande selectie van projecten blijven behouden. Zie [HFSQL_COLUMNS.md](HFSQL_COLUMNS.md) voor beschikbare velden, installatie en foutafhandeling.
+
+Voor bestaande installaties heeft `sudo python3 scripts/install_reader.py --target "$HOME/plenion-reader"` vanuit de repository de voorkeur boven het overschrijven met tar: deze updater controleert eerst de kandidaatimage en bewaart een reservekopie. Deploy eerst de bijbehorende Portal-update.

@@ -1,0 +1,157 @@
+[
+  {
+    "source": "KLCLEUNIK",
+    "label": "Klant-ID",
+    "group": "Relaties"
+  },
+  {
+    "source": "COCLEUNIK",
+    "label": "Contact-ID",
+    "group": "Relaties"
+  },
+  {
+    "source": "Opdrachtgever",
+    "label": "Opdrachtgever",
+    "group": "Relaties"
+  },
+  {
+    "source": "Studiebureau",
+    "label": "Studiebureau",
+    "group": "Relaties"
+  },
+  {
+    "source": "Beheerder",
+    "label": "Beheerder in Plenion",
+    "group": "Relaties"
+  },
+  {
+    "source": "Beheerder2",
+    "label": "Tweede beheerder",
+    "group": "Relaties"
+  },
+  {
+    "source": "RefBouwheer",
+    "label": "Referentie bouwheer",
+    "group": "Relaties"
+  },
+  {
+    "source": "A_Naam",
+    "label": "Adresnaam",
+    "group": "Adres"
+  },
+  {
+    "source": "A_Naam2",
+    "label": "Tweede adresnaam",
+    "group": "Adres"
+  },
+  {
+    "source": "A_Adres",
+    "label": "Adres",
+    "group": "Adres"
+  },
+  {
+    "source": "A_Adres2",
+    "label": "Adres aanvulling",
+    "group": "Adres"
+  },
+  {
+    "source": "A_PC",
+    "label": "Postcode",
+    "group": "Adres"
+  },
+  {
+    "source": "A_Plaats",
+    "label": "Plaats",
+    "group": "Adres"
+  },
+  {
+    "source": "A_Land",
+    "label": "Land",
+    "group": "Adres"
+  },
+  {
+    "source": "ExternalCode",
+    "label": "Externe code",
+    "group": "Referenties"
+  },
+  {
+    "source": "LastenboekRef",
+    "label": "Referentie lastenboek",
+    "group": "Referenties"
+  },
+  {
+    "source": "FAK_Referentie",
+    "label": "Factuurreferentie",
+    "group": "Facturatie"
+  },
+  {
+    "source": "FAK_TotaalExcl",
+    "label": "Factuurtotaal exclusief btw",
+    "group": "Facturatie"
+  },
+  {
+    "source": "FAK_TotaalIncl",
+    "label": "Factuurtotaal inclusief btw",
+    "group": "Facturatie"
+  },
+  {
+    "source": "FAK_CN",
+    "label": "Creditnotaveld (bronwaarde)",
+    "group": "Facturatie"
+  },
+  {
+    "source": "GarantieJaren",
+    "label": "Garantie in jaren",
+    "group": "Planning"
+  },
+  {
+    "source": "Datum1steVersie",
+    "label": "Datum eerste versie",
+    "group": "Planning"
+  },
+  {
+    "source": "DatumLaatsteVersie",
+    "label": "Datum laatste versie",
+    "group": "Planning"
+  },
+  {
+    "source": "VersieDatum",
+    "label": "Versiedatum",
+    "group": "Planning"
+  },
+  {
+    "source": "VersieMemo",
+    "label": "Versienotitie",
+    "group": "Notities"
+  },
+  {
+    "source": "MEMO",
+    "label": "Projectnotitie",
+    "group": "Notities"
+  },
+  {
+    "source": "MEMO2",
+    "label": "Tweede projectnotitie",
+    "group": "Notities"
+  },
+  {
+    "source": "MemoLevering",
+    "label": "Notitie levering",
+    "group": "Notities"
+  },
+  {
+    "source": "MemoPlaatsing",
+    "label": "Notitie plaatsing",
+    "group": "Notities"
+  },
+  {
+    "source": "KM",
+    "label": "Afstand (bronwaarde)",
+    "group": "Planning"
+  },
+  {
+    "source": "ReisTijd",
+    "label": "Reistijd (bronwaarde)",
+    "group": "Planning"
+  }
+]

@@ -5,7 +5,7 @@ RUN curl --fail --location --retry 3 --connect-timeout 20 --max-time 300 \
  && echo '127eb0c57882d474d4b8e964fd0cbb89edf44e3c20f2f5b96f74f1fad9e1e3ef  /tmp/driver.zip' | sha256sum -c - \
  && mkdir /driver && unzip -q /tmp/driver.zip '*.so' -d /driver && rm /tmp/driver.zip
 ENV LD_LIBRARY_PATH=/driver PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
-COPY reader.py /app/reader.py
+COPY reader.py hfsql-columns.json /app/
 # The reader runs as the configuration owner, not root. Do not inherit a restrictive host umask.
-RUN chmod 755 /app && chmod 644 /app/reader.py
+RUN chmod 755 /app && chmod 644 /app/reader.py /app/hfsql-columns.json
 ENTRYPOINT ["python3", "/app/reader.py"]

@@ -28,6 +28,49 @@ PORTAL_QUERY = ("SELECT P.IDProj,P.projnr,P.Naam,P.oms,P.STAT,W.CODE,W.OMSCHR1,P
                "AND (M.IDProjectMap=0 OR M.IDProjectMap IS NULL) "
                "AND M.VersieAf=0) "
                "ORDER BY P.IDProj")
+# Optional columns are curated, simple PROJ identifiers, never remote SQL.
+EXTRA_COLUMNS = {entry['source'] for entry in json.loads((Path(__file__).parent / 'hfsql-columns.json').read_text())}
+
+def project_filter(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError('Ongeldige projectselectie.')
+    codes, wip = value.get('statusCodes'), value.get('outOfWip')
+    if (not isinstance(codes, list) or len(codes) > 100 or
+            any(not isinstance(c, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,30}', c) for c in codes) or
+            len(set(codes)) != len(codes) or wip not in ('any', 'on', 'off')):
+        raise ValueError('Ongeldige status- of Uit WIP-filter.')
+    return {'statusCodes': sorted(codes), 'outOfWip': wip} if codes or wip != 'any' else None
+
+
+def portal_selection(options):
+    if not isinstance(options, dict):
+        raise ValueError('Ongeldige kolomconfiguratie.')
+    columns = options.get('selectedColumns', [])
+    if (not isinstance(columns, list) or len(columns) > len(EXTRA_COLUMNS) or
+            any(not isinstance(c, str) or c not in EXTRA_COLUMNS for c in columns) or len(set(columns)) != len(columns)):
+        raise ValueError('Onbekende extra HFSQL-kolom; werk de reader bij.')
+    columns = sorted(columns)
+    select, rest = PORTAL_QUERY.split(' FROM ', 1)
+    selection = project_filter(options.get('projectFilter'))
+    if selection:
+        if selection['statusCodes']:
+            rest = rest.replace('LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj ',
+                "LEFT JOIN PROJ M ON P.IDProjectMap=M.IDProj LEFT JOIN WERK WM ON M.STAT=WM.WECLEUNIK AND WM.TYPE='PRS' ")
+        for alias, status_alias in (('P', 'W'), ('M', 'WM')):
+            conditions = []
+            if selection['statusCodes']:
+                literals = ','.join("'" + code + "'" for code in selection['statusCodes'])
+                conditions.append(status_alias + '.CODE IN (' + literals + ')')
+            if selection['outOfWip'] != 'any':
+                conditions.append(alias + '.UITWIP=' + ('1' if selection['outOfWip'] == 'on' else '0'))
+            marker = 'AND ' + alias + '.VersieAf=0)'
+            rest = rest.replace(marker, 'AND ' + alias + '.VersieAf=0 AND ' + ' AND '.join(conditions) + ')')
+    query = select + ''.join(',P.' + c for c in columns) + ' FROM ' + rest
+    return query, PORTAL_FIELDS + tuple('extra_' + c for c in columns), columns
+
+
 STATUS_FIELDS = ('status_id', 'code', 'label')
 STATUSES_QUERY = "SELECT WECLEUNIK,CODE,OMSCHR1 FROM WERK WHERE TYPE='PRS' ORDER BY WECLEUNIK"
 
@@ -170,9 +213,10 @@ def driver_check():
     print('OK: officiële HFSQL-driver geladen en ODBC-omgeving aangemaakt.')
 
 
-def read(config, limit, mode="projects", status_column=None, table="PROJ"):
+def read(config, limit, mode="projects", status_column=None, table="PROJ", options=None):
     if mode not in ("projects", "databases", "tables", "columns", "audit", "statuses", "portal"):
         raise ValueError("Onbekende leesmodus.")
+    portal_query, portal_names, _ = portal_selection(options or {})
     audit_query = status_query(status_column) if mode == 'audit' else None
     metadata_query = columns_query(table) if mode == 'columns' else None
     if mode != 'columns' and table != 'PROJ':
@@ -222,12 +266,12 @@ def read(config, limit, mode="projects", status_column=None, table="PROJ"):
         names = FIELDS
         if mode in ('projects', 'audit', 'columns', 'statuses', 'portal'):
             print('Stap 7: leesquery uitvoeren...', flush=True)
-            query = PORTAL_QUERY if mode == 'portal' else STATUSES_QUERY if mode == 'statuses' else (metadata_query if mode == 'columns' else (audit_query or QUERY))
+            query = portal_query if mode == 'portal' else STATUSES_QUERY if mode == 'statuses' else (metadata_query if mode == 'columns' else (audit_query or QUERY))
             check(lib, lib.SQLExecDirect(stmt, query.encode(), -3), 'Projecten lezen', 3, stmt)
             if mode == 'columns':
                 return describe_columns(lib, stmt, config.get('encoding', 'utf-8')), False
             if mode == 'portal':
-                names = PORTAL_FIELDS
+                names = portal_names
             if mode == 'statuses':
                 names = STATUS_FIELDS
             if mode == 'audit':
@@ -344,6 +388,11 @@ def main():
     if args.mode == 'columns':
         table = args.table or 'PROJ'
         columns, _ = read(config, 2000, 'columns', table=table)
+        if args.output:
+            target = Path(args.output)
+            if target.resolve() == Path(args.config).resolve():
+                raise ValueError('Kolommetadata mag configuratie niet overschrijven.')
+            save(target, {'table': table, 'columns': [c['name'] for c in columns], 'observedAt': datetime.now(timezone.utc).isoformat()})
         print(f'{table}-kolommen (geen tabelinhoud gelezen):')
         for column in columns:
             print(column['name'])
@@ -352,14 +401,22 @@ def main():
         output = Path(args.output or '/data/portal-projects.json')
         if output.resolve() in {Path(args.config).resolve(), (Path(args.config).parent / 'projects.json').resolve()}:
             raise ValueError('Portaalexport mag de configuratie of basisexport niet overschrijven.')
-        rows, truncated = read(config, args.limit, 'portal')
+        options_path = Path(args.config).parent / 'reader-options.json'
+        options = json.loads(options_path.read_text()) if options_path.exists() else {}
+        _, _, extra_columns = portal_selection(options)
+        rows, truncated = read(config, args.limit, 'portal', options=options)
         if truncated:
             raise ValueError('Portaalexport afgekapt; vorig bestand blijft bewaard.')
         for row in rows:
+            if extra_columns:
+                row['extra_fields'] = {c: row.pop('extra_' + c) for c in extra_columns}
+                if any(v is not None and len(v) > 16000 for v in row['extra_fields'].values()):
+                    raise ValueError('Extra bronveld groter dan 16000 tekens; export gestopt.')
             for field in ('revision_closed', 'out_of_wip', 'is_project_map'):
                 if row[field] not in ('0', '1'):
                     raise ValueError(f'Onbekende vinkjeswaarde voor {field}; export gestopt, vorig bestand blijft bewaard.')
         save(output, {'schema_version': 3, 'source': 'plenion_reader_projects',
+                      'selection': project_filter(options.get('projectFilter')), 'config_revision': options.get('revision'),
                       'fetched_at': datetime.now(timezone.utc).isoformat(),
                       'count': len(rows), 'truncated': False, 'projects': rows})
         print(f'OK: {len(rows)} projectrecords met bronstatus opgeslagen in {output}.')
