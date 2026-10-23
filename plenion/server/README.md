@@ -335,3 +335,24 @@ starten; het databaseleesproces in Docker blijft draaien als eigenaar van
 data/connection.json. De 15-minutencyclus leest de ingestelde HFSQL-server:
 als die alleen dagelijks uit een backup ververst wordt, blijft de broninhoud
 dagelijks ververst. Uploadfrequentie verandert dat niet.
+
+### Status in Middleware
+
+De reader meldt bij `sync` de start, het resultaat van uitlezen en het resultaat van uploaden aan Portal. Open daar **Tools → Middleware & Integrations → Q-box-connector** voor het geselecteerde bedrijf. Dezelfde bedrijfs-API-key bepaalt de bestemming van projecten én statusmeldingen. De bestaande HTTPS- of ZeroTier-route blijft gelden.
+
+Installeer eerst de bijgewerkte Portal-versie inclusief de database-migratie `20261023100000_qbox_monitoring`. Werk daarna de reader bij via het gebruikelijke pakket:
+
+```sh
+# In de qbox-connector repository
+python3 scripts/build_reader.py
+tar -xzf dist/cohvera-plenion-reader.tar.gz -C ~/plenion-reader
+cd ~/plenion-reader
+sudo ./plenion.sh install
+sudo ./plenion.sh sync
+```
+
+Een al geïnstalleerde timer blijft de bijgewerkte `sync.py` elke 15 minuten uitvoeren. Controleer met `systemctl list-timers cohvera-reader-sync.timer`; op een nieuwe installatie activeer je hem met `sudo ./plenion.sh auto-install`. De configuratie in `data/` blijft behouden.
+
+Statusmeldingen gebruiken `POST /api/integrations/qbox/reader-status`. Bij uitval bewaart `data/reader-status-outbox.json` maximaal 100 meldingen voor een latere poging (maximaal 29 dagen). Mislukte statusrapportage blokkeert de projectupload niet. De melding bevat uitsluitend een poging-ID, stap, tijdstip, readerversie, eventueel recordaantal en HTTP-status. Volledige driveruitvoer blijft lokaal in het servicejournaal. `portal` alleen maakt een export; statusrapportage hoort bij `sync`.
+
+Het portaal toont de huidige vaste exportkolommen ter voorbereiding van latere kolomselectie. De query, filters en exportvelden worden door deze monitoringwijziging niet aangepast.

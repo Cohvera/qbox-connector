@@ -1,5 +1,7 @@
 """Export and send project JSON to Portal. Credentials stay on the Q-box."""
 import argparse
+from datetime import datetime, timezone
+import uuid
 import fcntl
 import getpass
 import http.client
@@ -21,6 +23,8 @@ ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / 'data' / 'upload.json'
 DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
+STATUS_ENDPOINT = '/api/integrations/qbox/reader-status'
+READER_VERSION = '3.1'
 
 
 def validate(config):
@@ -72,6 +76,63 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never send the import key to a redirect target.
 
 
+def portal_opener(config):
+    if config.get('connect_ip'):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                             RoutedHTTPSHandler(config['connect_ip']))
+    return urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+
+
+class UploadRejected(RuntimeError):
+    def __init__(self, message, status):
+        super().__init__(message)
+        self.status = status
+
+
+def report_status(config, run_id, phase, record_count=None, http_status=None):
+    # Only explicit operational fields, never driver output, config or credentials.
+    queued = False
+    try:
+        outbox = ROOT / 'data' / 'reader-status-outbox.json'
+        try:
+            previous = json.loads(outbox.read_text()) if outbox.exists() else []
+        except (ValueError, OSError):
+            previous = []
+        now = datetime.now(timezone.utc)
+        events = []
+        for e in previous if isinstance(previous, list) else []:
+            try:
+                if (isinstance(e, dict) and
+                        0 <= (now - datetime.fromisoformat(e['observedAt'])).total_seconds() < 29 * 86400 and
+                        e['phase'] in ('started', 'read_ok', 'read_failed', 'upload_failed', 'success') and
+                        str(uuid.UUID(e['runId'], version=4)) == e['runId'] and
+                        re.fullmatch(r'[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?', e['readerVersion'])):
+                    events.append({k: e[k] for k in ('runId', 'phase', 'observedAt', 'readerVersion', 'recordCount', 'httpStatus') if k in e})
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+
+        event = {'runId': run_id, 'phase': phase, 'observedAt': now.isoformat(), 'readerVersion': READER_VERSION}
+        if record_count is not None:
+            event['recordCount'] = record_count
+        if http_status is not None:
+            event['httpStatus'] = http_status
+        events = (events + [event])[-100:]
+        save(outbox, events)
+        queued = True
+        endpoint = validate(config).removesuffix(ENDPOINT) + STATUS_ENDPOINT
+        request = urllib.request.Request(endpoint, data=json.dumps({'events': events}).encode(), method='POST',
+                    headers={'Content-Type': 'application/json', 'X-Qbox-Key': config['api_key']})
+        with portal_opener(config).open(request, timeout=5) as response:
+            result = json.loads(response.read(8192))
+        if result.get('accepted') is not True:
+            raise ValueError('Status niet bevestigd')
+        save(outbox, [])
+    except Exception:
+        # Monitoring must never prevent reading/uploading projects; retry next phase/run.
+        print('Statusmelding niet afgeleverd; lokale wachtrij wordt bij een volgende poging opnieuw verstuurd.' if queued
+              else 'Statusmelding kon niet lokaal worden opgeslagen; controleer de data-map.', flush=True)
+
+
 def upload(config, payload):
     endpoint = validate(config)
     if len(payload) > 20 * 1024 * 1024:
@@ -82,11 +143,7 @@ def upload(config, payload):
         raise ValueError('Geen volledige readerexport v2/v3; niet verstuurd.')
     request = urllib.request.Request(endpoint, data=payload, method='POST', headers={
         'Content-Type':'application/json', 'X-Qbox-Key':config['api_key']})
-    if config.get('connect_ip'):
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
-                                             RoutedHTTPSHandler(config['connect_ip']))
-    else:
-        opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    opener = portal_opener(config)
     try:
         with opener.open(request, timeout=90) as response:
             result = json.loads(response.read(65537))
@@ -101,8 +158,8 @@ def upload(config, payload):
                 detail = ' '.join(message.replace(config['api_key'], '[afgeschermd]').split())[:500]
         except (ValueError, OSError, AttributeError):
             pass
-        raise RuntimeError(f'Cohvera weigert de import (HTTP {error.code}). ' +
-                           (detail or 'Geen detail ontvangen; controleer de API-log.')) from None
+        raise UploadRejected(f'Cohvera weigert de import (HTTP {error.code}). ' +
+                           (detail or 'Geen detail ontvangen; controleer de API-log.'), error.code) from None
     except (urllib.error.URLError, TimeoutError):
         raise RuntimeError('Cohvera niet bereikbaar of TLS-controle mislukt. Vorige import blijft behouden.') from None
     if result.get('accepted') is not True:
@@ -120,11 +177,23 @@ def sync():
         except BlockingIOError:
             print('Een synchronisatie loopt al; deze poging overgeslagen.')
             return
-        subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'portal'], check=True, timeout=180)
-        payload = (ROOT / 'data' / 'portal-projects.json').read_bytes()
-        result = upload(config, payload)
-        print(f'Cohvera bevestigt {result.get("count", 0)} projecten en '
-              f'{result.get("documentCount", 0)} onderliggende records voor {result.get("companyCode", "onbekend")}.', flush=True)
+        run_id = str(uuid.uuid4())
+        report_status(config, run_id, 'started')
+        stage = 'read'
+        try:
+            subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'portal'], check=True, timeout=180)
+            payload = (ROOT / 'data' / 'portal-projects.json').read_bytes()
+            record_count = json.loads(payload).get('count')
+            report_status(config, run_id, 'read_ok', record_count=record_count)
+            stage = 'upload'
+            result = upload(config, payload)
+            report_status(config, run_id, 'success', record_count=record_count)
+            print(f'Cohvera bevestigt {result.get("count", 0)} projecten en '
+                  f'{result.get("documentCount", 0)} onderliggende records voor {result.get("companyCode", "onbekend")}.', flush=True)
+        except Exception as error:
+            report_status(config, run_id, 'read_failed' if stage == 'read' else 'upload_failed',
+                          http_status=error.status if isinstance(error, UploadRejected) else None)
+            raise
 
 
 def install_timer():

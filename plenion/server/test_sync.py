@@ -58,7 +58,7 @@ class SyncTests(unittest.TestCase):
             config = root/'data/upload.json'
             config.write_text(json.dumps(CONFIG))
             (root/'data/portal-projects.json').write_bytes(PAYLOAD)
-            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=subprocess.CalledProcessError(1,'reader')), patch('sync.upload') as upload:
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=subprocess.CalledProcessError(1,'reader')), patch('sync.report_status'), patch('sync.upload') as upload:
                 with self.assertRaises(subprocess.CalledProcessError):
                     sync.sync()
                 upload.assert_not_called()
@@ -116,3 +116,53 @@ class SyncTests(unittest.TestCase):
             with patch('sync.CONFIG',config), patch('sys.argv',['sync.py','configure']), patch('builtins.input',return_value='10.0.0.1'), patch('sync.getpass.getpass',return_value='a'*43):
                 sync.main()
             self.assertEqual(json.loads(config.read_text()),{'portal_url':sync.DEFAULT_PORTAL_URL,'api_key':'a'*43,'connect_ip':'10.0.0.1'})
+
+    def test_status_queue_retries_without_sending_credentials_in_body(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'data').mkdir()
+            opener = MagicMock()
+            opener.open.side_effect = OSError('offline')
+            run_id = 'b279aa43-f995-4dce-a539-3be28993a976'
+            with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener):
+                sync.report_status(CONFIG,run_id,'started')
+                queue = root/'data/reader-status-outbox.json'
+                self.assertEqual(len(json.loads(queue.read_text())),1)
+                self.assertEqual(queue.stat().st_mode & 0o777,0o600)
+                opener.open.side_effect = None
+                opener.open.return_value.__enter__.return_value.read.return_value = b'{"accepted":true}'
+                sync.report_status(CONFIG,run_id,'read_ok',record_count=57)
+                request = opener.open.call_args.args[0]
+                self.assertEqual(request.full_url,CONFIG['portal_url']+sync.STATUS_ENDPOINT)
+                self.assertEqual([e['phase'] for e in json.loads(request.data)['events']],['started','read_ok'])
+                self.assertNotIn(CONFIG['api_key'],request.data.decode())
+                self.assertEqual(json.loads(queue.read_text()),[])
+
+    def test_corrupt_status_queue_does_not_block_new_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'data').mkdir()
+            queue = root/'data/reader-status-outbox.json'
+            opener = MagicMock()
+            opener.open.side_effect = OSError('offline')
+            with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener):
+                for broken in ['invalid json','[{}, {"observedAt":"bad"}]']:
+                    queue.write_text(broken)
+                    sync.report_status(CONFIG,'b279aa43-f995-4dce-a539-3be28993a976','success')
+                    self.assertEqual(len(json.loads(queue.read_text())),1)
+
+    def test_sync_reports_success_and_upload_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'data').mkdir()
+            config = root/'data/upload.json'
+            config.write_text(json.dumps(CONFIG))
+            (root/'data/portal-projects.json').write_bytes(PAYLOAD)
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.upload',return_value={'accepted':True}):
+                sync.sync()
+                self.assertEqual([c.args[2] for c in report.call_args_list],['started','read_ok','success'])
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run'), patch('sync.report_status') as report, patch('sync.upload',side_effect=sync.UploadRejected('rejected',400)):
+                with self.assertRaises(sync.UploadRejected):
+                    sync.sync()
+                self.assertEqual(report.call_args.args[2],'upload_failed')
+                self.assertEqual(report.call_args.kwargs['http_status'],400)
