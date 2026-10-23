@@ -87,6 +87,16 @@ def columns_query(table):
     return f'SELECT * FROM {table} WHERE 1=0'
 
 
+def normalize_column_name(value):
+    """Remove HFSQL metadata padding, preserving invalid embedded characters."""
+    if not isinstance(value, str) or len(value) > 1024:
+        raise ValueError('Ongeldige PROJ-kolommetadata.')
+    value = value.rstrip('\x00')
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', value):
+        raise ValueError('Ongeldige PROJ-kolommetadata.')
+    return value
+
+
 def describe_columns(lib, stmt, encoding):
     count = C.c_short()
     check(lib, lib.SQLNumResultCols(stmt, C.byref(count)), 'Kolommen tellen', 3, stmt)
@@ -107,7 +117,7 @@ def describe_columns(lib, stmt, encoding):
         check(lib, code, 'Kolomnaam lezen', 3, stmt)
         if code == 1 or not 0 < length.value < len(name):
             raise ValueError('Onvolledige kolomnaam; geen veldnamen geraden.')
-        columns.append({'name': name.raw[:length.value].decode(encoding),
+        columns.append({'name': normalize_column_name(name.raw[:length.value].decode(encoding)),
                         'sql_type': kind.value, 'size': size.value})
     return columns
 

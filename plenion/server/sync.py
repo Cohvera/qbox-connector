@@ -17,7 +17,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from reader import save
+from reader import save, normalize_column_name
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / 'data' / 'upload.json'
@@ -133,6 +133,20 @@ def report_status(config, run_id, phase, record_count=None, http_status=None):
               else 'Statusmelding kon niet lokaal worden opgeslagen; controleer de data-map.', flush=True)
 
 
+def portal_error_detail(error, config):
+    detail = ''
+    try:
+        body = json.loads(error.read(8192)) if error.fp is not None else {}
+        message = body.get('message') if isinstance(body, dict) else None
+        if isinstance(message, list):
+            message = '; '.join(item for item in message if isinstance(item, str))
+        if isinstance(message, str):
+            detail = ' '.join(message.replace(config['api_key'], '[afgeschermd]').split())[:500]
+    except (ValueError, OSError, AttributeError):
+        pass
+    return detail
+
+
 def upload(config, payload):
     endpoint = validate(config)
     if len(payload) > 20 * 1024 * 1024:
@@ -148,16 +162,7 @@ def upload(config, payload):
         with opener.open(request, timeout=90) as response:
             result = json.loads(response.read(65537))
     except urllib.error.HTTPError as error:
-        detail = ''
-        try:
-            body = json.loads(error.read(8192)) if error.fp is not None else {}
-            message = body.get('message') if isinstance(body, dict) else None
-            if isinstance(message, list):
-                message = '; '.join(item for item in message if isinstance(item, str))
-            if isinstance(message, str):
-                detail = ' '.join(message.replace(config['api_key'], '[afgeschermd]').split())[:500]
-        except (ValueError, OSError, AttributeError):
-            pass
+        detail = portal_error_detail(error, config)
         raise UploadRejected(f'Cohvera weigert de import (HTTP {error.code}). ' +
                            (detail or 'Geen detail ontvangen; controleer de API-log.'), error.code) from None
     except (urllib.error.URLError, TimeoutError):
@@ -173,6 +178,9 @@ def fetch_reader_options(config, applied_revision=None):
     if not schema_path.exists() or datetime.now().timestamp() - schema_path.stat().st_mtime > 86400:
         subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'schema'], check=True, timeout=60)
     schema = json.loads(schema_path.read_text())
+    schema['columns'] = [normalize_column_name(c) for c in schema['columns']]
+    if len(set(schema['columns'])) != len(schema['columns']):
+        raise ValueError('Dubbele PROJ-kolommetadata.')
     statuses_path = ROOT / 'data' / 'project-statuses.json'
     if not statuses_path.exists() or datetime.now().timestamp() - statuses_path.stat().st_mtime > 86400:
         subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'statuses'], check=True, timeout=60)
@@ -185,8 +193,24 @@ def fetch_reader_options(config, applied_revision=None):
     endpoint = validate(config).removesuffix(ENDPOINT) + '/api/integrations/qbox/reader-config'
     request = urllib.request.Request(endpoint, data=json.dumps(body).encode(), method='POST',
         headers={'Content-Type': 'application/json', 'X-Qbox-Key': config['api_key']})
-    with portal_opener(config).open(request, timeout=10) as response:
-        options = json.loads(response.read(65536))
+    print('Portal-configuratie ophalen...', flush=True)
+    try:
+        with portal_opener(config).open(request, timeout=10) as response:
+            options = json.loads(response.read(65536))
+    except urllib.error.HTTPError as error:
+        detail = portal_error_detail(error, config)
+        hints = {404: 'De reader-config-route ontbreekt. Werk de Portal-API bij.',
+                 401: 'Controleer de bedrijfs-API-key.',
+                 403: 'Controleer of het bedrijf actief is en toegang heeft.',
+                 500: 'Controleer de Portal-API-log en of de database-migraties zijn uitgevoerd.'}
+        raise UploadRejected(f'Portal-configuratie geweigerd (HTTP {error.code}). ' +
+                             (detail + ' ' if detail else '') + hints.get(error.code, 'Controleer de configuratie in Middleware.'), error.code) from None
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError):
+        raise RuntimeError('Portal-configuratie niet bereikbaar: controleer netwerk/ZeroTier en TLS. Vorige import blijft behouden.') from None
+    except (ValueError, UnicodeDecodeError):
+        raise RuntimeError('Portal-configuratie bevat geen geldige JSON. Controleer de Portal-API en reverse proxy.') from None
+    if not isinstance(options, dict):
+        raise RuntimeError('Portal-configuratie heeft een ongeldig formaat; verwacht een JSON-object.')
     from reader import portal_selection, project_filter
     _, _, chosen = portal_selection(options)
     selection = project_filter(options.get('projectFilter'))
@@ -203,6 +227,7 @@ def fetch_reader_options(config, applied_revision=None):
     owner = (ROOT / 'data' / 'connection.json').stat()
     if os.geteuid() == 0:
         os.chown(path, owner.st_uid, owner.st_gid)
+    print(f'Portal-configuratie ontvangen: versie {options["revision"]}.', flush=True)
     return options
 
 

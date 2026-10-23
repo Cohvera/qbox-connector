@@ -172,7 +172,7 @@ class SyncTests(unittest.TestCase):
             root=Path(directory)
             (root/'data').mkdir()
             (root/'data/connection.json').write_text('{}')
-            (root/'data/hfsql-schema.json').write_text(json.dumps({'columns':['IDProj','memo']}))
+            (root/'data/hfsql-schema.json').write_text(json.dumps({'columns':['IDProj\x00\x00','memo\x00\x00']}))
             (root/'data/project-statuses.json').write_text(json.dumps({'statuses':[{'code':'07','label':'In uitvoering'}]}))
             opener=MagicMock()
             response=opener.open.return_value.__enter__.return_value
@@ -182,6 +182,7 @@ class SyncTests(unittest.TestCase):
                 process.assert_not_called()
                 request=opener.open.call_args.args[0]
                 self.assertEqual(json.loads(request.data)['appliedRevision'],3)
+                self.assertEqual(json.loads(request.data)['columns'], ['IDProj', 'memo'])
                 self.assertNotIn(CONFIG['api_key'],request.data.decode())
                 saved=(root/'data/reader-options.json').read_bytes()
                 self.assertEqual(json.loads(saved)['selectedColumns'],['MEMO'])
@@ -208,3 +209,23 @@ class SyncTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     sync.sync()
                 upload.assert_not_called()
+
+    def test_configuration_http_failure_shows_status_without_credentials(self):
+        import io
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'data').mkdir()
+            (root/'data/hfsql-schema.json').write_text('{"columns":["IDProj"]}')
+            (root/'data/project-statuses.json').write_text('{"statuses":[]}')
+            opener=MagicMock()
+            with patch('sync.ROOT',root),patch('sync.portal_opener',return_value=opener):
+                for code in [400,401,404,500]:
+                    opener.open.side_effect=urllib.error.HTTPError('https://portal.example',code,'',{},io.BytesIO(json.dumps({'message':'test '+CONFIG['api_key']}).encode()))
+                    with self.assertRaisesRegex(sync.UploadRejected,f'HTTP {code}') as result:
+                        sync.fetch_reader_options(CONFIG)
+                    self.assertNotIn(CONFIG['api_key'],str(result.exception))
+                    self.assertEqual(result.exception.status,code)
+                opener.open.side_effect=urllib.error.URLError(CONFIG['api_key'])
+                with self.assertRaisesRegex(RuntimeError,'niet bereikbaar') as result:
+                    sync.fetch_reader_options(CONFIG)
+                self.assertNotIn(CONFIG['api_key'],str(result.exception))
+                self.assertFalse((root/'data/reader-options.json').exists())

@@ -69,7 +69,7 @@ class AuditTests(unittest.TestCase):
             return 0
         def describe(stmt, index, name, buflen, length, kind, size, digits, nullable):
             name.value = (b'IDProj', b'ActualStatus')[index - 1]
-            length._obj.value = len(name.value)
+            length._obj.value = len(name.value) * 4  # HFSQL can report padded buffer length.
             kind._obj.value = 12
             size._obj.value = 100
             return 0
@@ -111,6 +111,12 @@ class AuditTests(unittest.TestCase):
                 with self.subTest(mode=mode, table=table), self.assertRaises(ValueError):
                     reader.read(config, 2000, mode, 'STAT', table=table)
             connect.assert_not_called()
+
+    def test_column_padding_does_not_hide_invalid_identifiers(self):
+        self.assertEqual(reader.normalize_column_name('IDProj\x00' + '\x00' * 17), 'IDProj')
+        for value in ('ID\x00Proj', '\x00', 'P.MEMO', None, 'x' * 129):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                reader.normalize_column_name(value)
 
     def test_truncated_column_name_is_not_used(self):
         lib = MagicMock()
