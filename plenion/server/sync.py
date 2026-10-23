@@ -24,7 +24,7 @@ CONFIG = ROOT / 'data' / 'upload.json'
 DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
 STATUS_ENDPOINT = '/api/integrations/qbox/reader-status'
-READER_VERSION = '3.3'
+READER_VERSION = '3.4'
 
 
 def validate(config):
@@ -231,7 +231,7 @@ def fetch_reader_options(config, applied_revision=None):
     return options
 
 
-def sync():
+def sync(run_id=None):
     # A failed new read must never upload the previous file.
     config = json.loads(CONFIG.read_text())
     validate(config)
@@ -240,8 +240,8 @@ def sync():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print('Een synchronisatie loopt al; deze poging overgeslagen.')
-            return
-        run_id = str(uuid.uuid4())
+            return False
+        run_id = run_id or str(uuid.uuid4())
         report_status(config, run_id, 'started')
         stage = 'configuration'
         try:
@@ -266,6 +266,84 @@ def sync():
             report_status(config, run_id, {'configuration':'configuration_failed','read':'read_failed','upload':'upload_failed'}[stage],
                           http_status=error.status if isinstance(error, UploadRejected) else error.code if isinstance(error, urllib.error.HTTPError) else None)
             raise
+
+        return True
+
+
+def command_request(config, acknowledged_id=None):
+    endpoint = validate(config).removesuffix(ENDPOINT) + '/api/integrations/qbox/reader-command'
+    body = {'acknowledgedId': acknowledged_id} if acknowledged_id else {}
+    request = urllib.request.Request(endpoint, data=json.dumps(body).encode(), method='POST',
+        headers={'Content-Type': 'application/json', 'X-Qbox-Key': config['api_key']})
+    try:
+        with portal_opener(config).open(request, timeout=10) as response:
+            result = json.loads(response.read(4096))
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError, ValueError):
+        raise RuntimeError('Sync-aanvragen niet bereikbaar; automatische synchronisatie blijft actief.') from None
+    request_id = result.get('requestId') if isinstance(result, dict) else False
+    if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(
+            r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', request_id, re.I)):
+        raise ValueError('Ongeldige sync-aanvraag van Portal.')
+    return request_id
+
+
+def poll_command():
+    config = json.loads(CONFIG.read_text())
+    with (ROOT / 'data' / 'command.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        completed = ROOT / 'data' / 'completed-sync-request.json'
+        acknowledged = json.loads(completed.read_text()).get('id') if completed.exists() else None
+        request_id = command_request(config, acknowledged)
+        if not request_id:
+            return
+        # A failed manual attempt is acknowledged too; its failure is in the sync log.
+        # If another sync holds the lock, leave the request pending for the next poll.
+        try:
+            attempted = sync(run_id=request_id)
+        except Exception:
+            save(completed, {'id': request_id})
+            raise
+        if attempted:
+            save(completed, {'id': request_id})
+            command_request(config, request_id)
+
+
+def install_command_timer():
+    if os.geteuid() != 0 or not re.fullmatch(r'/[A-Za-z0-9_./-]+', str(ROOT)):
+        raise ValueError('Installatie vereist sudo en een geldige installatiemap.')
+    validate(json.loads(CONFIG.read_text()))
+    unit_dir = Path('/etc/systemd/system')
+    (unit_dir / 'cohvera-reader-command.service').write_text(f"""[Unit]
+Description=Cohvera sync-aanvragen controleren
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory={ROOT}
+ExecStart=/usr/bin/python3 {ROOT}/sync.py poll-command
+UMask=0077
+TimeoutStartSec=480
+""")
+    (unit_dir / 'cohvera-reader-command.timer').write_text("""[Unit]
+Description=Cohvera sync-aanvragen elke 30 seconden controleren
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=30
+AccuracySec=1
+Unit=cohvera-reader-command.service
+
+[Install]
+WantedBy=timers.target
+""")
+    subprocess.run(['systemctl', 'daemon-reload'], check=True)
+    subprocess.run(['systemctl', 'enable', '--now', 'cohvera-reader-command.timer'], check=True)
+
 
 
 def install_timer():
@@ -303,12 +381,13 @@ WantedBy=timers.target
 """)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', 'enable', '--now', 'cohvera-reader-sync.timer'], check=True)
-    print('Timer actief: elke 15 minuten. Test nu met sudo ./plenion.sh sync.')
+    install_command_timer()
+    print('Timer actief: elke 15 minuten. Sync-aanvragen vanuit Portal worden elke 30 seconden gecontroleerd.')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['configure', 'run', 'install-timer'])
+    parser.add_argument('action', choices=['configure', 'run', 'install-timer', 'install-command-timer', 'poll-command'])
     parser.add_argument('--portal-url', help='Optioneel afwijkend HTTPS-adres bij configure')
     args = parser.parse_args()
     if args.portal_url and args.action != 'configure':
@@ -329,6 +408,10 @@ def main():
         CONFIG.parent.mkdir(mode=0o700, exist_ok=True)
         save(CONFIG, config)
         print('Uploadconfiguratie opgeslagen. De server kiest het bedrijf; geen bedrijfsfilter op de Q-box.')
+    elif args.action == 'poll-command':
+        poll_command()
+    elif args.action == 'install-command-timer':
+        install_command_timer()
     elif args.action == 'install-timer':
         install_timer()
     else:

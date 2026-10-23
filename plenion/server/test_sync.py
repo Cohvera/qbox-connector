@@ -229,3 +229,46 @@ class SyncTests(unittest.TestCase):
                     sync.fetch_reader_options(CONFIG)
                 self.assertNotIn(CONFIG['api_key'],str(result.exception))
                 self.assertFalse((root/'data/reader-options.json').exists())
+
+    def test_manual_request_waits_for_lock_and_is_not_repeated_after_completion(self):
+        request_id='12345678-1234-4234-8234-123456789abc'
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'data').mkdir()
+            config=root/'data/upload.json';config.write_text(json.dumps(CONFIG))
+            with patch('sync.ROOT',root),patch('sync.CONFIG',config),patch('sync.command_request',return_value=request_id) as poll,patch('sync.sync',return_value=False) as run:
+                sync.poll_command()
+                run.assert_called_once_with(run_id=request_id)
+                self.assertFalse((root/'data/completed-sync-request.json').exists())
+                run.return_value=True
+                sync.poll_command()
+                self.assertEqual(json.loads((root/'data/completed-sync-request.json').read_text())['id'],request_id)
+                poll.assert_called_with(CONFIG,request_id)
+                poll.return_value=None
+                run.reset_mock()
+                sync.poll_command()
+                run.assert_not_called()
+                poll.assert_called_with(CONFIG,request_id)
+
+    def test_failed_manual_sync_is_acknowledged_on_next_poll(self):
+        request_id='12345678-1234-4234-8234-123456789abc'
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'data').mkdir()
+            config=root/'data/upload.json';config.write_text(json.dumps(CONFIG))
+            with patch('sync.ROOT',root),patch('sync.CONFIG',config),patch('sync.command_request',return_value=request_id) as poll,patch('sync.sync',side_effect=RuntimeError('read failed')):
+                with self.assertRaisesRegex(RuntimeError,'read failed'):sync.poll_command()
+                self.assertEqual(json.loads((root/'data/completed-sync-request.json').read_text())['id'],request_id)
+                poll.return_value=None
+                sync.poll_command()
+                poll.assert_called_with(CONFIG,request_id)
+
+    def test_command_poll_accepts_only_request_ids_and_keeps_key_out_of_body(self):
+        opener=MagicMock();response=opener.open.return_value.__enter__.return_value
+        with patch('sync.portal_opener',return_value=opener):
+            response.read.return_value=b'{"requestId":null}'
+            self.assertIsNone(sync.command_request(CONFIG))
+            req=opener.open.call_args.args[0]
+            self.assertTrue(req.full_url.endswith('/reader-command'))
+            self.assertNotIn(CONFIG['api_key'],req.data.decode())
+            for value in ['run rm',False,{},[]]:
+                response.read.return_value=json.dumps({'requestId':value}).encode()
+                with self.assertRaises(ValueError):sync.command_request(CONFIG)

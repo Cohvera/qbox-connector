@@ -26,6 +26,7 @@ class InstallTests(unittest.TestCase):
             (source/'hfsql-columns.json').write_text('[]')
             (target/'plenion.sh').write_text('old script')
             config=target/'data/connection.json';config.write_text('private-config')
+            (target/'data/upload.json').write_text('{}')
             unit=root/'sync.service';unit.write_text('[Service]\nTimeoutStartSec=300\n')
             calls=[]
             def run(*args,**kwargs):
@@ -50,6 +51,7 @@ class InstallTests(unittest.TestCase):
                     self.assertEqual((target/'plenion.sh').stat().st_mode & 0o777,0o755)
                     self.assertEqual((target/'hfsql-columns.json').stat().st_mode & 0o777,0o644)
                     self.assertTrue(list(root.glob('.plenion-reader-backup-*')))
+                    self.assertIn(('/usr/bin/python3',str(target.resolve()/'sync.py'),'install-command-timer'),calls)
                 self.assertEqual(config.read_text(),'private-config')
     def test_build_failure_leaves_installation_untouched(self):self.exercise(fail_build=True)
     def test_activation_failure_restores_scripts_and_image(self):self.exercise(fail_activation=True)

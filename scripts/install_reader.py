@@ -99,6 +99,9 @@ def install(target):
                 raise
         print(f'Reader bijgewerkt. Configuratie en timer behouden. Reservekopie: {backup}')
         print(f'Vorige Docker-image: {backup_image}')
+        if unit_before is not None and (target/'data/upload.json').exists():
+            run('/usr/bin/python3', str(target/'sync.py'), 'install-command-timer')
+            print('Starten vanuit Portal ingeschakeld.')
         print(f'Test nu: cd {target} && sudo ./plenion.sh sync')
     finally:
         subprocess.run(['docker','image','rm',candidate],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)

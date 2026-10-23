@@ -358,3 +358,23 @@ Statusmeldingen gebruiken `POST /api/integrations/qbox/reader-status`. Bij uitva
 Reader 3.2 ondersteunt extra kolomselectie per bedrijf via Middleware. De 24 basisvelden en de bestaande selectie van projecten blijven behouden. Zie [HFSQL_COLUMNS.md](HFSQL_COLUMNS.md) voor beschikbare velden, installatie en foutafhandeling.
 
 Voor bestaande installaties heeft `sudo python3 scripts/install_reader.py --target "$HOME/plenion-reader"` vanuit de repository de voorkeur boven het overschrijven met tar: deze updater controleert eerst de kandidaatimage en bewaart een reservekopie. Deploy eerst de bijbehorende Portal-update.
+
+
+### Reader 3.4: starten vanuit Portal
+
+Deploy eerst de Portal-migratie `20261023140000_qbox_sync_requests`, API en web.
+Werk daarna de bestaande Q-box bij met `scripts/install_reader.py --target "$HOME/plenion-reader"` (sudo).
+Bij een bestaande sync-service en uploadconfiguratie installeert de updater ook
+`cohvera-reader-command.timer`. Nieuwe installaties krijgen beide timers via `sudo ./plenion.sh auto-install`.
+Bij een handmatige tar-update kun je de nieuwe timer activeren met `sudo python3 sync.py install-command-timer`.
+
+De nieuwe timer vraagt elke 30 seconden via de bestaande HTTPS/ZeroTier-route en bedrijfskey
+of er een sync-aanvraag klaarstaat. Deze controle leest geen HFSQL-projecten.
+De knop in Middleware wordt beschikbaar na de eerste controle. Sla gewijzigde selecties eerst op.
+Een aanvraag blijft bij netwerkuitval klaarstaan; meerdere klikken worden samengevoegd.
+Er worden uitsluitend sync-aanvragen verwerkt, geen shellcommando's vanuit Portal.
+De bestaande upload-lock voorkomt gelijktijdige exports. Een mislukte poging verschijnt
+in het synchronisatielog en wordt niet eindeloos herhaald; de gewone kwartiersync blijft actief.
+
+Controle: `systemctl list-timers cohvera-reader-command.timer`.
+Log van handmatig aangevraagde syncs: `sudo journalctl -u cohvera-reader-command.service -n 100 --no-pager`.
