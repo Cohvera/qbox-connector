@@ -24,7 +24,7 @@ CONFIG = ROOT / 'data' / 'upload.json'
 DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
 STATUS_ENDPOINT = '/api/integrations/qbox/reader-status'
-READER_VERSION = '3.6'
+READER_VERSION = '3.7'
 
 
 def validate(config):
@@ -184,7 +184,7 @@ def fetch_reader_options(config, applied_revision=None):
     statuses_path = ROOT / 'data' / 'project-statuses.json'
     if not statuses_path.exists() or datetime.now().timestamp() - statuses_path.stat().st_mtime > 86400:
         subprocess.run(['/bin/sh', str(ROOT / 'plenion.sh'), 'statuses'], check=True, timeout=60)
-    statuses = [{'code': str(s.get('code') or '').strip(), 'label': str(s.get('label') or '').replace('\x00', '').strip()}
+    statuses = [{**({'id': str(s['status_id']).strip()} if s.get('status_id') else {}), 'code': str(s.get('code') or '').strip(), 'label': str(s.get('label') or '').replace('\x00', '').strip()}
                 for s in json.loads(statuses_path.read_text())['statuses']
                 if re.fullmatch(r'[A-Za-z0-9_-]{1,30}', str(s.get('code') or '').strip())]
     body = {'columns': schema['columns'], 'readerVersion': READER_VERSION, 'statuses': statuses}
@@ -216,6 +216,8 @@ def fetch_reader_options(config, applied_revision=None):
     selection = project_filter(options.get('projectFilter'))
     if selection and any(c not in {s['code'] for s in statuses} for c in selection['statusCodes']):
         raise ValueError('Gekozen status ontbreekt in Plenion; export gestopt.')
+    if selection and any(i not in {s.get('id') for s in statuses} for i in selection.get('statusIds', [])):
+        raise ValueError('Gekozen status-ID ontbreekt in Plenion; export gestopt.')
     if type(options.get('revision')) is not int or options['revision'] < 0:
         raise ValueError('Ongeldige configuratieversie van Portal.')
     available = {c.lower() for c in schema['columns']}

@@ -292,6 +292,14 @@ class ReaderTests(unittest.TestCase):
         for codes,wip,expected in [(['07'],'off',[1,11]),(['09'],'any',[2,12]),([], 'on',[2,3,12,13]),(['07','09'],'off',[1,11]),([], 'any',[1,2,3,11,12,13])]:
             query,_,_=reader.portal_selection({'projectFilter':{'statusCodes':codes,'outOfWip':wip}})
             self.assertEqual([r[0] for r in db.execute(query)],expected)
+        db.execute("INSERT INTO WERK VALUES (300,'02','Offerte','PRS')")
+        db.execute("UPDATE WERK SET CODE='02' WHERE WECLEUNIK=100")
+        db.execute('UPDATE PROJ SET STAT=300 WHERE IDProj=3')
+        for ids,wip,expected in [(['100'],'any',[1,11]),(['300'],'any',[3,13]),(['100','300'],'off',[1,11])]:
+            query,_,_=reader.portal_selection({'projectFilter':{'statusCodes':[],'statusIds':ids,'outOfWip':wip}})
+            self.assertEqual([r[0] for r in db.execute(query)],expected)
+        for ids in [["100) OR 1=1"],['100','100'],[100],['0']]:
+            with self.assertRaises(ValueError):reader.project_filter({'statusCodes':[],'statusIds':ids,'outOfWip':'any'})
         db.close()
 
     def test_relationship_filter_uses_root_numbers_and_keeps_children(self):

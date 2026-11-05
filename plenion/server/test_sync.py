@@ -173,7 +173,7 @@ class SyncTests(unittest.TestCase):
             (root/'data').mkdir()
             (root/'data/connection.json').write_text('{}')
             (root/'data/hfsql-schema.json').write_text(json.dumps({'columns':['IDProj\x00\x00','memo\x00\x00']}))
-            (root/'data/project-statuses.json').write_text(json.dumps({'statuses':[{'code':'07','label':'In uitvoering'}]}))
+            (root/'data/project-statuses.json').write_text(json.dumps({'statuses':[{'status_id':'100','code':'07','label':'In uitvoering'}]}))
             opener=MagicMock()
             response=opener.open.return_value.__enter__.return_value
             with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener), patch('sync.subprocess.run') as process:
@@ -203,6 +203,14 @@ class SyncTests(unittest.TestCase):
                     saved=(root/'data/reader-options.json').read_bytes()
                     self.assertEqual(json.loads(saved)['projectFilter']['relationshipType'],kind)
                     self.assertEqual(json.loads(saved)['selectedColumns'],['IDProsPect','KLCLEUNIK','MEMO'])
+                response.read.return_value=json.dumps({'revision':7,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':[],'statusIds':['100'],'outOfWip':'any'}}).encode()
+                sync.fetch_reader_options(CONFIG)
+                self.assertEqual(json.loads(opener.open.call_args.args[0].data)['statuses'][0]['id'],'100')
+                saved=(root/'data/reader-options.json').read_bytes()
+                self.assertEqual(json.loads(saved)['projectFilter']['statusIds'],['100'])
+                response.read.return_value=json.dumps({'revision':8,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':[],'statusIds':['999'],'outOfWip':'any'}}).encode()
+                with self.assertRaises(ValueError):sync.fetch_reader_options(CONFIG)
+                self.assertEqual((root/'data/reader-options.json').read_bytes(),saved)
                 for selected in [['A_PC'],['MEMO;DELETE'],['APP_Paswoord']]:
                     response.read.return_value=json.dumps({'revision':5,'selectedColumns':selected}).encode()
                     with self.assertRaises(ValueError):

@@ -41,13 +41,20 @@ def project_filter(value):
             any(not isinstance(c, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,30}', c) for c in codes) or
             len(set(codes)) != len(codes) or wip not in ('any', 'on', 'off')):
         raise ValueError('Ongeldige status- of Uit WIP-filter.')
+    ids = value.get('statusIds', [])
+    if (not isinstance(ids, list) or len(ids) > 100 or
+            any(not isinstance(i, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', i) for i in ids) or
+            len(set(ids)) != len(ids) or (ids and codes)):
+        raise ValueError('Ongeldige status-ID-filter.')
     relationship = value.get('relationshipType', 'any')
     if relationship not in ('any', 'prospect', 'customer'):
         raise ValueError('Ongeldige prospect- of klantfilter.')
     result = {'statusCodes': sorted(codes), 'outOfWip': wip}
+    if ids:
+        result['statusIds'] = sorted(ids)
     if relationship != 'any':
         result['relationshipType'] = relationship
-    return result if codes or wip != 'any' or relationship != 'any' else None
+    return result if codes or ids or wip != 'any' or relationship != 'any' else None
 
 
 def portal_selection(options):
@@ -69,6 +76,8 @@ def portal_selection(options):
             if selection['statusCodes']:
                 literals = ','.join("'" + code + "'" for code in selection['statusCodes'])
                 conditions.append(status_alias + '.CODE IN (' + literals + ')')
+            if selection.get('statusIds'):
+                conditions.append(alias + '.STAT IN (' + ','.join(selection['statusIds']) + ')')
             if selection['outOfWip'] != 'any':
                 conditions.append(alias + '.UITWIP=' + ('1' if selection['outOfWip'] == 'on' else '0'))
             if selection.get('relationshipType'):

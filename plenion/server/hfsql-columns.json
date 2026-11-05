@@ -158,5 +158,10 @@
     "source": "ReisTijd",
     "label": "Reistijd (bronwaarde)",
     "group": "Planning"
+  },
+  {
+    "source": "STAT",
+    "label": "Status-ID",
+    "group": "Referenties"
   }
 ]
