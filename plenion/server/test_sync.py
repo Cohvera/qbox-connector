@@ -202,6 +202,7 @@ class SyncTests(unittest.TestCase):
                     sync.fetch_reader_options(CONFIG)
                     saved=(root/'data/reader-options.json').read_bytes()
                     self.assertEqual(json.loads(saved)['projectFilter']['relationshipType'],kind)
+                    self.assertEqual(json.loads(saved)['selectedColumns'],['IDProsPect','KLCLEUNIK','MEMO'])
                 for selected in [['A_PC'],['MEMO;DELETE'],['APP_Paswoord']]:
                     response.read.return_value=json.dumps({'revision':5,'selectedColumns':selected}).encode()
                     with self.assertRaises(ValueError):

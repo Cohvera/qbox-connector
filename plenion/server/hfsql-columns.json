@@ -5,6 +5,11 @@
     "group": "Relaties"
   },
   {
+    "source": "IDProsPect",
+    "label": "Prospectnummer",
+    "group": "Relaties"
+  },
+  {
     "source": "COCLEUNIK",
     "label": "Contact-ID",
     "group": "Relaties"

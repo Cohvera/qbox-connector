@@ -55,3 +55,9 @@ Middleware biedt **Alle / Prospect / Klant**, gecombineerd met status en Uit WIP
 Prospect selecteert hoofdprojecten met `PROJ.IDProsPect > 0`; Klant selecteert hoofdprojecten met `PROJ.KLCLEUNIK > 0`. Nul en NULL gelden als geen nummer. Als beide nummers aanwezig zijn, voldoet het project aan beide keuzes. Alle gekoppelde documenten blijven mee opgehaald op basis van het hoofdproject.
 
 De filter wordt als `relationshipType: "prospect"` of `"customer"` in de bestaande JSON-configuratie bewaard; Alle laat dit veld weg. Een extra databasemigratie is niet nodig. Reader 3.5 en de benodigde gemelde PROJ-kolom zijn vereist voordat deze selectie kan worden opgeslagen. Werk API/web en de Q-box-reader bij en synchroniseer eerst om de readerversie en metadata te melden.
+
+## Filter in Projecten (reader 3.6)
+
+De pagina Projecten biedt eveneens Alle / Prospect / Klant. Dit filter werkt op de reeds geïmporteerde hoofdprojecten en combineert met de overige overzichtsfilters en CSV-export. Projecten zonder ontvangen nummer voldoen niet aan een specifieke relatiekeuze; Alle blijft ze tonen. Beide aanwezige nummers laten een project aan beide keuzes voldoen.
+
+Reader 3.6 neemt `IDProsPect` en `KLCLEUNIK` automatisch mee onder `extra_fields` wanneer deze PROJ-kolommen in de gemelde metadata aanwezig zijn, ook als ze niet als extra kolom zijn aangevinkt. Ontbrekende kolommen worden niet geraden. Voor nieuwe waarden is een geslaagde sync nodig. Bij een update moeten zowel de readerimage als het losse `sync.py`-script vervangen zijn: alleen `plenion.sh install` bouwt enkel de image. De middleware toont de gemelde versie wanneer de selectie nog niet kan worden opgeslagen.

@@ -24,7 +24,7 @@ CONFIG = ROOT / 'data' / 'upload.json'
 DEFAULT_PORTAL_URL = 'https://portal.cohvera.be'
 ENDPOINT = '/api/integrations/qbox/plenion/reader-projects'
 STATUS_ENDPOINT = '/api/integrations/qbox/reader-status'
-READER_VERSION = '3.5'
+READER_VERSION = '3.6'
 
 
 def validate(config):
@@ -225,6 +225,8 @@ def fetch_reader_options(config, applied_revision=None):
         column = 'idprospect' if selection['relationshipType'] == 'prospect' else 'klcleunik'
         if column not in available:
             raise ValueError('Prospect- of klantnummerveld ontbreekt in PROJ; export gestopt.')
+    # Always carry available relationship numbers for the Projects overview filter.
+    chosen = sorted(set(chosen) | {c for c in ('IDProsPect', 'KLCLEUNIK') if c.lower() in available})
     # Docker uses the connection-file owner, even when this process runs as root.
     path = ROOT / 'data' / 'reader-options.json'
     save(path, {'revision': options['revision'], 'selectedColumns': chosen, 'projectFilter': selection})
