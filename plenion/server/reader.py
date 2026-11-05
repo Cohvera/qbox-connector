@@ -41,7 +41,13 @@ def project_filter(value):
             any(not isinstance(c, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,30}', c) for c in codes) or
             len(set(codes)) != len(codes) or wip not in ('any', 'on', 'off')):
         raise ValueError('Ongeldige status- of Uit WIP-filter.')
-    return {'statusCodes': sorted(codes), 'outOfWip': wip} if codes or wip != 'any' else None
+    relationship = value.get('relationshipType', 'any')
+    if relationship not in ('any', 'prospect', 'customer'):
+        raise ValueError('Ongeldige prospect- of klantfilter.')
+    result = {'statusCodes': sorted(codes), 'outOfWip': wip}
+    if relationship != 'any':
+        result['relationshipType'] = relationship
+    return result if codes or wip != 'any' or relationship != 'any' else None
 
 
 def portal_selection(options):
@@ -65,6 +71,9 @@ def portal_selection(options):
                 conditions.append(status_alias + '.CODE IN (' + literals + ')')
             if selection['outOfWip'] != 'any':
                 conditions.append(alias + '.UITWIP=' + ('1' if selection['outOfWip'] == 'on' else '0'))
+            if selection.get('relationshipType'):
+                column = 'IDProsPect' if selection['relationshipType'] == 'prospect' else 'KLCLEUNIK'
+                conditions.append(alias + '.' + column + '>0')
             marker = 'AND ' + alias + '.VersieAf=0)'
             rest = rest.replace(marker, 'AND ' + alias + '.VersieAf=0 AND ' + ' AND '.join(conditions) + ')')
     query = select + ''.join(',P.' + c for c in columns) + ' FROM ' + rest

@@ -192,6 +192,16 @@ class SyncTests(unittest.TestCase):
                 self.assertEqual(json.loads(saved)['projectFilter'],{'statusCodes':['07'],'outOfWip':'off'})
                 response.read.return_value=json.dumps({'revision':6,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':['09'],'outOfWip':'off'}}).encode()
                 with self.assertRaises(ValueError):sync.fetch_reader_options(CONFIG)
+                for kind in ['prospect','customer']:
+                    response.read.return_value=json.dumps({'revision':6,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':[],'outOfWip':'any','relationshipType':kind}}).encode()
+                    with self.assertRaises(ValueError):sync.fetch_reader_options(CONFIG)
+                    self.assertEqual((root/'data/reader-options.json').read_bytes(),saved)
+                (root/'data/hfsql-schema.json').write_text(json.dumps({'columns':['IDProj','memo','IDProsPect','KLCLEUNIK']}))
+                for kind in ['prospect','customer']:
+                    response.read.return_value=json.dumps({'revision':6,'selectedColumns':['MEMO'],'projectFilter':{'statusCodes':[],'outOfWip':'any','relationshipType':kind}}).encode()
+                    sync.fetch_reader_options(CONFIG)
+                    saved=(root/'data/reader-options.json').read_bytes()
+                    self.assertEqual(json.loads(saved)['projectFilter']['relationshipType'],kind)
                 for selected in [['A_PC'],['MEMO;DELETE'],['APP_Paswoord']]:
                     response.read.return_value=json.dumps({'revision':5,'selectedColumns':selected}).encode()
                     with self.assertRaises(ValueError):

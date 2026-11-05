@@ -294,6 +294,29 @@ class ReaderTests(unittest.TestCase):
             self.assertEqual([r[0] for r in db.execute(query)],expected)
         db.close()
 
+    def test_relationship_filter_uses_root_numbers_and_keeps_children(self):
+        import sqlite3
+        import re
+        db = sqlite3.connect(':memory:')
+        columns = set(re.findall(r'[PM]\.([A-Za-z0-9_]+)', reader.PORTAL_QUERY)) | {'IDProsPect', 'KLCLEUNIK'}
+        integer = {'IDProj', 'IDProjectMap', 'ProjectMap', 'VersieAf', 'UITWIP', 'STAT', 'IDProsPect', 'KLCLEUNIK'}
+        db.execute('CREATE TABLE PROJ (' + ','.join(c + (' INTEGER' if c in integer else ' TEXT') for c in columns) + ')')
+        db.execute('CREATE TABLE WERK (WECLEUNIK INTEGER, CODE TEXT, OMSCHR1 TEXT, TYPE TEXT)')
+        db.execute("INSERT INTO WERK VALUES (100,'07','Uitvoering','PRS')")
+        db.executemany('INSERT INTO PROJ (IDProj,IDProjectMap,ProjectMap,VersieAf,UITWIP,STAT,IDProsPect,KLCLEUNIK) VALUES (?,?,?,?,?,?,?,?)', [
+            (1,0,1,0,0,100,42,0), (2,0,1,0,0,100,0,55),
+            (3,0,1,0,1,100,42,55), (4,0,1,0,0,100,None,None),
+            (11,1,0,1,1,100,0,55), (12,2,0,1,1,100,42,0),
+            (13,3,0,0,0,100,None,None)])
+        for kind,wip,expected in [('prospect','any',[1,3,11,13]), ('customer','any',[2,3,12,13]), ('prospect','off',[1,11]), ('customer','off',[2,12])]:
+            query,_,_ = reader.portal_selection({'projectFilter':{'statusCodes':['07'],'outOfWip':wip,'relationshipType':kind}})
+            self.assertEqual([r[0] for r in db.execute(query)], expected)
+        db.close()
+        self.assertIsNone(reader.project_filter({'statusCodes':[],'outOfWip':'any','relationshipType':'any'}))
+        for kind in ['invalid', True, None, "customer' OR 1=1"]:
+            with self.assertRaises(ValueError):
+                reader.project_filter({'statusCodes':[],'outOfWip':'any','relationshipType':kind})
+
     def test_project_filter_rejects_sql_and_ambiguous_flags(self):
         for value in [{'statusCodes':["07'); DELETE"],'outOfWip':'any'}, {'statusCodes':['07','07'],'outOfWip':'off'}, {'statusCodes':[],'outOfWip':True}, {'statusCodes':'07','outOfWip':'any'}]:
             with self.assertRaises(ValueError):reader.project_filter(value)

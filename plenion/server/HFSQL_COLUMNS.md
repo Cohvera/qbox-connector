@@ -48,3 +48,10 @@ Zonder filter blijft de bestaande volledige dossierselectie behouden. Met bijvoo
 Deploy eerst de aanvullende Portal-migratie `20261023130000_qbox_filters` en API/web, daarna reader 3.3. De keuze verschijnt pas nadat deze reader zijn statuslijst heeft gemeld. Exports dragen de gebruikte selectie en configuratieversie. Portal weigert een afwijkende/verouderde selectie voordat projecten worden aangepast. Een geslaagde lege selectie kan dus alle Plenion-hoofdprojecten uit de actuele importlijst halen, maar verwijdert geen databaseprojecten, taken of Plenion-records. Bij terugschakelen naar alle statussen komen beschikbare dossiers bij de volgende sync terug.
 
 De bestaande schermfilters van Projecten (standaard ‘In uitvoering’) en TV blijven apart gelden. Gebruik ‘Alles’ bij Projecten om alle geïmporteerde fasen te zien. Afwezigheid uit de readerselectie wordt niet als bewezen afsluiting geïnterpreteerd.
+
+## Prospect of klant (reader 3.5)
+
+Middleware biedt **Alle / Prospect / Klant**, gecombineerd met status en Uit WIP via EN.
+Prospect selecteert hoofdprojecten met `PROJ.IDProsPect > 0`; Klant selecteert hoofdprojecten met `PROJ.KLCLEUNIK > 0`. Nul en NULL gelden als geen nummer. Als beide nummers aanwezig zijn, voldoet het project aan beide keuzes. Alle gekoppelde documenten blijven mee opgehaald op basis van het hoofdproject.
+
+De filter wordt als `relationshipType: "prospect"` of `"customer"` in de bestaande JSON-configuratie bewaard; Alle laat dit veld weg. Een extra databasemigratie is niet nodig. Reader 3.5 en de benodigde gemelde PROJ-kolom zijn vereist voordat deze selectie kan worden opgeslagen. Werk API/web en de Q-box-reader bij en synchroniseer eerst om de readerversie en metadata te melden.
