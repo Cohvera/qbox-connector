@@ -63,6 +63,28 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(lib.SQLExecDirect.call_args.args[1], reader.QUERY.encode())
         self.assertTrue(reader.QUERY.startswith('SELECT '))
 
+    def test_version_reads_engine_and_driver_metadata_without_sql(self):
+        from unittest.mock import MagicMock
+
+        lib = MagicMock()
+        for name in ('SQLAllocHandle', 'SQLSetEnvAttr', 'SQLDriverConnect'):
+            getattr(lib, name).return_value = 0
+
+        def get_info(connection, info_type, output, capacity, length):
+            value = {18: b'28.0.123.4', 7: b'31.0.6017.0'}[info_type]
+            output.value = value
+            length._obj.value = len(value)
+            return 0
+
+        lib.SQLGetInfo.side_effect = get_info
+        config = {'host': 'replica', 'database': 'data_Warco', 'user': 'reader', 'password': 'test'}
+        with patch('reader.socket.create_connection'), patch('reader.odbc', return_value=lib):
+            versions, truncated = reader.read(config, 1, 'version')
+        self.assertEqual(versions, {'odbcDbmsVersion': '28.0.123.4', 'driverVersion': '31.0.6017.0'})
+        self.assertFalse(truncated)
+        lib.SQLExecDirect.assert_not_called()
+        lib.SQLDisconnect.assert_called_once()
+
     def test_catalog_uses_metadata_and_never_project_query(self):
         import ctypes as C
         from unittest.mock import MagicMock

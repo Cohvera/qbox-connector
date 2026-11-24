@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,6 +13,39 @@ PAYLOAD = json.dumps({'source':'plenion_reader_projects','schema_version':2,'tru
 
 
 class SyncTests(unittest.TestCase):
+    def test_journal_replays_old_network_failure_without_raw_text(self):
+        entry = {'_SYSTEMD_UNIT': 'cohvera-reader-sync.service', '__CURSOR': 'stable-cursor',
+                 '__REALTIME_TIMESTAMP': str(int((time.time() - 2) * 1000000)),
+                 'MESSAGE': 'Fout: [Errno 113] No route to host private-log-text'}
+        event = sync.journal_event(entry)
+        self.assertEqual(event['phase'], 'journal_error')
+        self.assertEqual(event['diagnostic'], {'step':'hfsql_export','errno':113,'journalUnit':'cohvera-reader-sync.service'})
+        self.assertEqual(event['runId'], sync.journal_event(entry)['runId'])
+        self.assertNotIn('private-log-text', json.dumps(event))
+        self.assertIsNone(sync.journal_event({**entry,'_SYSTEMD_UNIT':'unrelated.service'}))
+
+    def test_journal_retries_without_advancing_cursor_until_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'data').mkdir()
+            entry = {'_SYSTEMD_UNIT':'cohvera-reader-sync.service','__CURSOR':'next',
+                     '__REALTIME_TIMESTAMP':str(int((time.time()-2)*1000000)),
+                     'MESSAGE':'Fout: Aanmelden bij HFSQL mislukt (SQLSTATE 08001, code 0).'}
+            completed = subprocess.CompletedProcess([], 0, json.dumps(entry))
+            with patch('sync.ROOT',root), patch('sync.subprocess.run',return_value=completed) as journal, patch('sync.post_status_events') as post:
+                post.side_effect = OSError('offline')
+                with self.assertRaises(OSError):
+                    sync.sync_journal(CONFIG)
+                state = root/'data/journal-cursor.json'
+                self.assertFalse(state.exists())
+                post.side_effect = None
+                self.assertEqual(sync.sync_journal(CONFIG), 1)
+                self.assertEqual(post.call_args_list[0], post.call_args_list[1])
+                self.assertEqual(json.loads(state.read_text()), {'cursor':'next'})
+                journal.return_value = subprocess.CompletedProcess([], 0, '')
+                self.assertEqual(sync.sync_journal(CONFIG), 0)
+                self.assertIn('--after-cursor=next', journal.call_args.args[0])
+
     def test_https_only_and_no_embedded_credentials_or_paths(self):
         self.assertEqual(sync.validate(CONFIG), 'https://portal.example'+sync.ENDPOINT)
         for url in ['http://portal.example', 'https://user:pass@portal.example', 'https://portal.example/other', 'https://portal.example?key=x']:
@@ -58,10 +92,21 @@ class SyncTests(unittest.TestCase):
             config = root/'data/upload.json'
             config.write_text(json.dumps(CONFIG))
             (root/'data/portal-projects.json').write_bytes(PAYLOAD)
-            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=subprocess.CalledProcessError(1,'reader')), patch('sync.report_status'), patch('sync.fetch_reader_options',return_value={'revision':2}), patch('sync.upload') as upload:
+            failure = subprocess.CalledProcessError(1, 'reader', stderr=(
+                'Fout: Aanmelden bij HFSQL mislukt (SQLSTATE 08001, code 0). private-password'))
+            with patch('sync.ROOT',root), patch('sync.CONFIG',config), patch('sync.subprocess.run',side_effect=failure), patch('sync.report_status'), patch('sync.fetch_reader_options',return_value={'revision':2}), patch('sync.upload') as upload:
                 with self.assertRaises(subprocess.CalledProcessError):
                     sync.sync()
                 upload.assert_not_called()
+            latest = root/'data/last-sync.json'
+            failed = root/'data/last-sync-failure.json'
+            self.assertEqual(latest.read_bytes(), failed.read_bytes())
+            report = json.loads(latest.read_text())
+            self.assertEqual(report['result'], 'failed')
+            self.assertEqual(report['steps'][-1]['name'], 'hfsql_export')
+            self.assertEqual(report['error']['sqlState'], '08001')
+            self.assertNotIn('private-password', latest.read_text())
+            self.assertNotIn(CONFIG['api_key'], latest.read_text())
 
     def test_bad_export_not_sent_and_http_errors_do_not_leak_key(self):
         with patch('sync.urllib.request.build_opener') as build:
@@ -125,7 +170,8 @@ class SyncTests(unittest.TestCase):
             opener.open.side_effect = OSError('offline')
             run_id = 'b279aa43-f995-4dce-a539-3be28993a976'
             with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener):
-                sync.report_status(CONFIG,run_id,'started')
+                sync.report_status(CONFIG,run_id,'read_failed',diagnostic={
+                    'step':'hfsql_export','errno':113,'durationMs':3002,'password':'private-secret'})
                 queue = root/'data/reader-status-outbox.json'
                 self.assertEqual(len(json.loads(queue.read_text())),1)
                 self.assertEqual(queue.stat().st_mode & 0o777,0o600)
@@ -134,7 +180,10 @@ class SyncTests(unittest.TestCase):
                 sync.report_status(CONFIG,run_id,'read_ok',record_count=57)
                 request = opener.open.call_args.args[0]
                 self.assertEqual(request.full_url,CONFIG['portal_url']+sync.STATUS_ENDPOINT)
-                self.assertEqual([e['phase'] for e in json.loads(request.data)['events']],['started','read_ok'])
+                events = json.loads(request.data)['events']
+                self.assertEqual([e['phase'] for e in events],['read_failed','read_ok'])
+                self.assertEqual(events[0]['diagnostic'], {'step':'hfsql_export','errno':113,'durationMs':3002})
+                self.assertNotIn('private-secret', request.data.decode())
                 self.assertNotIn(CONFIG['api_key'],request.data.decode())
                 self.assertEqual(json.loads(queue.read_text()),[])
 
@@ -179,7 +228,8 @@ class SyncTests(unittest.TestCase):
             with patch('sync.ROOT',root), patch('sync.portal_opener',return_value=opener), patch('sync.subprocess.run') as process:
                 response.read.return_value=json.dumps({'revision':4,'selectedColumns':['MEMO']}).encode()
                 sync.fetch_reader_options(CONFIG,3)
-                process.assert_not_called()
+                process.assert_called_once_with(['/bin/sh', str(root/'plenion.sh'), 'statuses'], check=True, timeout=60,
+                                                stderr=subprocess.PIPE, text=True, errors='replace')
                 request=opener.open.call_args.args[0]
                 self.assertEqual(json.loads(request.data)['appliedRevision'],3)
                 self.assertEqual(json.loads(request.data)['columns'], ['IDProj', 'memo'])
@@ -217,6 +267,29 @@ class SyncTests(unittest.TestCase):
                         sync.fetch_reader_options(CONFIG)
                     self.assertEqual((root/'data/reader-options.json').read_bytes(),saved)
 
+    def test_status_rename_is_sent_even_when_the_local_catalog_is_recent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root/'data'
+            data.mkdir()
+            (data/'connection.json').write_text('{}')
+            (data/'hfsql-schema.json').write_text('{"columns":["IDProj"]}')
+            catalog = data/'project-statuses.json'
+            catalog.write_text('{"statuses":[{"status_id":"100","code":"03","label":"Wachten"}]}')
+            opener = MagicMock()
+            opener.open.return_value.__enter__.return_value.read.return_value = b'{"revision":1}'
+            with patch('sync.ROOT', root), patch('sync.portal_opener', return_value=opener), patch('sync.subprocess.run') as process:
+                process.side_effect = lambda *args, **kwargs: catalog.write_text(
+                    '{"statuses":[{"status_id":"100","code":"03","label":"Offerte verstuurd"}]}')
+                sync.fetch_reader_options(CONFIG)
+                request = json.loads(opener.open.call_args.args[0].data)
+                self.assertEqual(request['statuses'], [{'id':'100', 'code':'03', 'label':'Offerte verstuurd'}])
+                opener.open.reset_mock()
+                process.side_effect = TimeoutError
+                with self.assertRaises(TimeoutError):
+                    sync.fetch_reader_options(CONFIG)
+                opener.open.assert_not_called()
+
     def test_unreachable_configuration_never_uploads_stale_export(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
@@ -236,7 +309,7 @@ class SyncTests(unittest.TestCase):
             (root/'data/hfsql-schema.json').write_text('{"columns":["IDProj"]}')
             (root/'data/project-statuses.json').write_text('{"statuses":[]}')
             opener=MagicMock()
-            with patch('sync.ROOT',root),patch('sync.portal_opener',return_value=opener):
+            with patch('sync.ROOT',root),patch('sync.portal_opener',return_value=opener),patch('sync.subprocess.run'):
                 for code in [400,401,404,500]:
                     opener.open.side_effect=urllib.error.HTTPError('https://portal.example',code,'',{},io.BytesIO(json.dumps({'message':'test '+CONFIG['api_key']}).encode()))
                     with self.assertRaisesRegex(sync.UploadRejected,f'HTTP {code}') as result:
@@ -291,3 +364,22 @@ class SyncTests(unittest.TestCase):
             for value in ['run rm',False,{},[]]:
                 response.read.return_value=json.dumps({'requestId':value}).encode()
                 with self.assertRaises(ValueError):sync.command_request(CONFIG)
+
+    def test_failed_command_polls_report_portal_http_status_without_flooding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root/'data'/'upload.json'
+            config.parent.mkdir()
+            config.write_text(json.dumps(CONFIG))
+            with patch('sync.ROOT',root),patch('sync.CONFIG',config),patch('sync.command_request') as poll,patch('sync.report_status') as report:
+                poll.side_effect = sync.UploadRejected('private response', 503)
+                for _ in range(2):
+                    with self.assertRaises(sync.UploadRejected):
+                        sync.poll_command()
+                report.assert_called_once()
+                self.assertEqual(report.call_args.args[2], 'command_poll_failed')
+                self.assertEqual(report.call_args.kwargs, {'http_status':503,'diagnostic':{'step':'command_poll'}})
+                poll.side_effect = None
+                poll.return_value = None
+                sync.poll_command()
+                self.assertFalse((root/'data/last-command-failure.json').exists())

@@ -5,8 +5,19 @@ umask 077
 IMAGE=cohvera-plenion-reader:local
 ACTION=${1:-help}
 case "$ACTION" in
+  version)
+    CONFIG=${2:-data/connection.json}
+    [ "$#" -le 2 ] && [ -f "$CONFIG" ] || { echo 'Gebruik: ./plenion.sh version [VERBINDING.json]' >&2; exit 1; }
+    CONFIG=$(realpath "$CONFIG")
+    OWNER=$(stat -c '%u:%g' "$CONFIG")
+    exec docker run --rm --platform linux/amd64 --network host --read-only \
+      --user "$OWNER" --tmpfs /tmp:rw,size=64m --cap-drop ALL --security-opt no-new-privileges \
+      --mount "type=bind,source=$CONFIG,target=/data/connection.json,readonly" "$IMAGE" --mode version
+    ;;
   upload-config) shift; exec python3 sync.py configure "$@" ;;
   sync) exec python3 sync.py run ;;
+  debug) exec python3 sync.py debug ;;
+  journal-sync) exec python3 sync.py journal-sync ;;
   auto-install) exec python3 sync.py install-timer ;;
 
   configure|database|encoding)
@@ -46,7 +57,7 @@ case "$ACTION" in
     exit
     ;;
   schema|check|test|read|databases|tables|columns|audit|statuses|portal) ;;
-  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | portal | audit STATUSKOLOM | check | test | read | upload-config | sync | auto-install'; exit 0 ;;
+  *) echo 'Gebruik: ./plenion.sh install | configure | database | encoding | databases | tables | columns [TABEL] | statuses | version [VERBINDING.json] | portal | audit STATUSKOLOM | check | test | read | upload-config | sync | debug | journal-sync | auto-install'; exit 0 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'Voer eerst ./plenion.sh install uit.' >&2; exit 1; }
 if [ "$ACTION" = check ]; then

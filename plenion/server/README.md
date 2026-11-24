@@ -79,6 +79,123 @@ sudo ./plenion.sh test
 
 De metadata-aanroep volgt [SQLTables uit de ODBC-specificatie](https://learn.microsoft.com/en-us/sql/odbc/reference/syntax/sqltables-function); dit is geen bevestiging van ondersteuning door de HFSQL-server.
 
+### HFSQL-serverversie vergelijken
+
+#### WARCO via Windows en Docker
+
+Lees de HFSQL-build op productie `192.168.16.7` lokaal uit met PowerShell.
+Gebruik een beheerconsole als je account de versiegegevens van het proces
+op poort 4900 niet kan lezen:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -File .\probe_hfsql_windows.ps1
+```
+
+Op de Docker-host `192.168.16.39` lees je het geïnstalleerde pakket uit de
+actieve HFSQL-container. Zet `probe_hfsql_docker.py` en
+`maintain_hfsql_replica.py` in dezelfde map. Neem de container die `data_Warco`
+op poort 4900 serveert:
+
+```sh
+python3 probe_hfsql_docker.py --container CONTAINERNAAM
+```
+
+Vergelijk de Windows-`serverVersion` met **General** in HFSQL Control Center
+op productie. Noteer op de replica het volledige enginebuildnummer uit
+**General** bij de gemelde Docker-`packageVersion`. Bewaar die combinatie in
+een JSON-object, bijvoorbeeld `{"31.0.059":"31.0.123.4"}` als illustratie.
+Met `--build-map /pad/naar/builds.json` geeft de Docker-probe ook
+`serverVersion` door. Bevestig deze koppeling voor elke nieuwe pakketversie.
+
+Als SSH naar beide hosts al werkt, kun je de bestaande checker op een Linux-host
+met deze probes configureren. Pas gebruikers, paden en containernaam aan.
+De PowerShell- en Python-scripts moeten op de bijbehorende hosts staan:
+
+```json
+{
+  "productionProbe": ["ssh", "-o", "BatchMode=yes", "beheer@192.168.16.7", "powershell.exe", "-NoProfile", "-NonInteractive", "-File", "C:/HFSQL-tools/probe_hfsql_windows.ps1"],
+  "replicaProbe": ["ssh", "-o", "BatchMode=yes", "beheer@192.168.16.39", "python3", "/opt/hfsql-tools/probe_hfsql_docker.py", "--container", "CONTAINERNAAM", "--build-map", "/opt/hfsql-tools/builds.json"]
+}
+```
+
+#### Dagelijkse controle op de Qbox
+
+Bewaar de WARCO-configuratie als
+`/opt/loxberry/plenion-reader/data/hfsql-maintenance.json`. Gebruik een bestand
+met rechten `600`, leesbaar voor `loxberry`. De controle gebruikt de SSH-toegang
+van dat account en moet zonder interactieve aanmelding beide hosts kunnen bereiken.
+Voer vanuit het uitgepakte installatiepakket op de Qbox eerst één controle uit:
+
+```sh
+sudo install -m 0755 scripts/maintain_hfsql_replica.py /opt/loxberry/plenion-reader/maintain_hfsql_replica.py
+cd /opt/loxberry/plenion-reader
+sudo -u loxberry python3 maintain_hfsql_replica.py --config data/hfsql-maintenance.json
+```
+
+Zodra beide buildnummers kloppen, voer vanuit het uitgepakte pakket op de Qbox uit:
+
+```sh
+sudo install -m 0644 scripts/systemd/cohvera-hfsql-version-check.service \
+  scripts/systemd/cohvera-hfsql-version-check.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cohvera-hfsql-version-check.timer
+systemctl list-timers cohvera-hfsql-version-check.timer
+```
+
+De timer draait dagelijks om 06:00 Belgische tijd en haalt een gemiste
+controle in nadat de Qbox opnieuw online komt. Een verschil verschijnt in
+het log. De timer voert alleen de versiecontrole uit. Bekijk het resultaat via
+`sudo journalctl -u cohvera-hfsql-version-check.service -n 30 --no-pager`.
+
+#### ODBC-diagnose en native uitlezing
+
+Na een readerupdate geeft `sudo ./plenion.sh version` de ODBC-waarden
+`odbcDbmsVersion` en `driverVersion` terug. Oudere readers noemen de eerste
+waarde `serverVersion`. De WARCO-replica gaf `20.00.0000` als ODBC-DBMS-versie;
+die waarde bevestigt geen exact HFSQL-enginebuildnummer. Geef voor productie
+een apart, afgeschermd verbindingsbestand met dezelfde JSON-velden door:
+
+```sh
+sudo ./plenion.sh version /etc/cohvera-plenion/production-connection.json
+```
+
+Gebruik een bestaand leesaccount. Deze opdracht opent een HFSQL-verbinding voor
+ODBC-metadata en leest geen tabellen. De werkelijke engineversie staat onder
+**General** van elke server in HFSQL Control Center. Voor automatisering
+vraagt `scripts/hfsql_engine_version.wl` de engineversie op via
+`HInfoServer(..., hInfoVI)`. Gebruik dit bronbestand als initialisatiecode van
+een WINDEV-project zonder analyse of startvenster. Bouw een uitvoerbaar bestand
+voor de machine waarop de controle draait en installeer het met de bijhorende
+WINDEV-runtime. Die machine moet beide HFSQL-servers kunnen bereiken. Het
+Qbox-installatiepakket bevat de broncode en de Python-wrapper, dus het native
+uitvoerbare bestand moet nog met WINDEV worden gebouwd.
+
+Vanuit de checkout kan `scripts/maintain_hfsql_replica.py --config <bestand>` de
+twee native probes vergelijken. De laatste uitvoerregel van een probe moet
+JSON zijn met `serverVersion` (bijvoorbeeld `28.0.123.4`). De checker weigert
+ODBC-versierapporten. Gebruik `scripts/probe_hfsql_engine.py` om het resultaat van
+het native programma door te geven. Stel in de aparte verbindingsbestanden
+`192.168.16.7` in voor productie en `192.168.16.39` voor de replica:
+
+```json
+{
+  "productionProbe": ["python3", "/pad/naar/probe_hfsql_engine.py", "/pad/naar/hfsql_engine_version", "/etc/cohvera-plenion/production-connection.json"],
+  "replicaProbe": ["python3", "/pad/naar/probe_hfsql_engine.py", "/pad/naar/hfsql_engine_version", "/opt/loxberry/plenion-reader/data/connection.json"]
+}
+```
+
+Exitcode `0` betekent gelijke versies, `2` betekent dat de replica achterloopt,
+en `1` betekent een fout of een nieuwere replica. Stel voor `--apply` ook `images`
+in als mapping van exact productiebuildnummer naar image-referentie met vaste
+SHA-256-digest, en `replicaUpdate` als argumentenlijst voor de bestaande
+deploymentprocedure op de replicahost. Neem `{image}` eenmaal op als apart
+argument. Die procedure moet de replica-opslag en replicatieconfiguratie
+bewaren en een herstelpad bieden bij een mislukte deploy. Voor WARCO is het
+uitleesdoel van die replica `192.168.16.39:4900 / data_Warco`. Gebruik productie
+uitsluitend als versiebron. Na de update controleert het script opnieuw de
+replica-engineversie. Controleer de voortgang van de continue replicatie in
+HFSQL Control Center voordat je een Portal-sync start.
+
 ## 3. Resultaat bekijken
 
 De test haalt maximaal vijf records op:
@@ -353,7 +470,41 @@ sudo ./plenion.sh sync
 
 Een al geïnstalleerde timer blijft de bijgewerkte `sync.py` elke 15 minuten uitvoeren. Controleer met `systemctl list-timers cohvera-reader-sync.timer`; op een nieuwe installatie activeer je hem met `sudo ./plenion.sh auto-install`. De configuratie in `data/` blijft behouden.
 
-Statusmeldingen gebruiken `POST /api/integrations/qbox/reader-status`. Bij uitval bewaart `data/reader-status-outbox.json` maximaal 100 meldingen voor een latere poging (maximaal 29 dagen). Mislukte statusrapportage blokkeert de projectupload niet. De melding bevat uitsluitend een poging-ID, stap, tijdstip, readerversie, eventueel recordaantal en HTTP-status. Volledige driveruitvoer blijft lokaal in het servicejournaal. `portal` alleen maakt een export; statusrapportage hoort bij `sync`.
+Statusmeldingen gebruiken `POST /api/integrations/qbox/reader-status`. Bij uitval bewaart `data/reader-status-outbox.json` maximaal 100 meldingen voor een latere poging (maximaal 29 dagen). Mislukte statusrapportage blokkeert de projectupload niet. Reader 3.10 voegt gevalideerde diagnosecodes toe, ook bij fouten tijdens het ophalen van sync-aanvragen. Deploy vóór de readerupdate de Portal-migratie `20261124120000_qbox_connection_diagnostics`, API en web. `portal` alleen maakt een export; statusrapportage hoort bij `sync`.
+
+#### Diagnose van een mislukte synchronisatie
+
+Op de Qbox toont `sudo ./plenion.sh debug` de laatste poging en de laatste fout.
+De reader bewaart deze afgeschermd in `data/last-sync.json` en
+`data/last-sync-failure.json`. Je ziet de poging-ID, laatste stap, looptijd,
+en waar beschikbaar de HTTP-status, ODBC `SQLSTATE` en native foutcode.
+De bestanden bevatten geen credentials of projectrecords. Als de service
+abrupt is gestopt, blijft de laatst begonnen stap zichtbaar zonder eindresultaat.
+
+Bekijk voor de volledige chronologie beide systemd-services:
+
+```sh
+sudo journalctl -u cohvera-reader-sync.service -u cohvera-reader-command.service -n 150 --no-pager
+```
+
+Op de Portal-server zoek je het volledige `runId` uit `debug` in de API-logs:
+
+```sh
+docker compose logs --since 30m api | rg 'VUL_HIER_HET_RUN_ID_IN'
+```
+
+De bijgewerkte API logt onder `QboxReader` de route, duur, HTTP-status en
+eventuele Prisma-code, zoals `P2028`. Daarmee kun je een uploadfout koppelen
+aan één poging. Voor die koppeling moeten reader en Portal-API bijgewerkt zijn.
+
+Vanaf reader 3.11 verschijnen herkenbare fouten uit de twee sync-services ook
+onder **Verbindingsdiagnose → Qbox-journaal**. Bij de eerste uitlezing zoekt de
+reader in maximaal 5000 lokale journaalregels van de laatste 48 uur. Hij stuurt
+de oorspronkelijke tijdstippen en veilige foutcodes door. Portal toont 50
+meldingen per pagina. De ruwe tekst en credentials blijven op de Qbox.
+Om het journaal meteen te doorzoeken, voer `sudo ./plenion.sh journal-sync` uit.
+De volgende automatische sync probeert opnieuw als Portal onbereikbaar is.
+Rol eerst de Portal-API en webapp met journaalondersteuning uit.
 
 Reader 3.2 ondersteunt extra kolomselectie per bedrijf via Middleware. De 24 basisvelden en de bestaande selectie van projecten blijven behouden. Zie [HFSQL_COLUMNS.md](HFSQL_COLUMNS.md) voor beschikbare velden, installatie en foutafhandeling.
 

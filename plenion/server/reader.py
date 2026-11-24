@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from collections import Counter
 
 DRIVER = '/driver/wd310hfo64.so'
+SQL_DRIVER_VER = 7
+SQL_DBMS_VER = 18
 FIELDS = ('source_id', 'number', 'customer_id', 'name', 'description', 'created_at')
 QUERY = 'SELECT IDProj,projnr,KLCLEUNIK,Naam,oms,CDATUM FROM PROJ ORDER BY IDProj'
 
@@ -206,6 +208,7 @@ def odbc(library):
         'SQLSetEnvAttr': [h, C.c_int, h, C.c_int],
         'SQLSetConnectAttr': [h, C.c_int, h, C.c_int],
         'SQLDriverConnect': [h, h, C.c_char_p, C.c_short, h, C.c_short, C.POINTER(C.c_short), C.c_ushort],
+        'SQLGetInfo': [h, C.c_ushort, h, C.c_short, C.POINTER(C.c_short)],
         'SQLTables': [h, C.c_char_p, C.c_short, C.c_char_p, C.c_short, C.c_char_p, C.c_short, C.c_char_p, C.c_short],
         'SQLExecDirect': [h, C.c_char_p, C.c_int],
         'SQLFetch': [h],
@@ -241,8 +244,20 @@ def driver_check():
     print('OK: officiële HFSQL-driver geladen en ODBC-omgeving aangemaakt.')
 
 
+def version_info(lib, connection):
+    versions = {}
+    for key, info_type in (('odbcDbmsVersion', SQL_DBMS_VER), ('driverVersion', SQL_DRIVER_VER)):
+        value, length = C.create_string_buffer(256), C.c_short()
+        check(lib, lib.SQLGetInfo(connection, info_type, value, len(value), C.byref(length)),
+              'HFSQL-versie opvragen', 2, connection)
+        if not 0 < length.value < len(value):
+            raise ValueError('ODBC gaf geen volledige versie terug.')
+        versions[key] = value.value.decode('ascii').strip()
+    return versions
+
+
 def read(config, limit, mode="projects", status_column=None, table="PROJ", options=None):
-    if mode not in ("projects", "databases", "tables", "columns", "audit", "statuses", "portal"):
+    if mode not in ("projects", "databases", "tables", "columns", "audit", "statuses", "portal", "version"):
         raise ValueError("Onbekende leesmodus.")
     portal_query, portal_names, _ = portal_selection(options or {})
     audit_query = status_query(status_column) if mode == 'audit' else None
@@ -289,6 +304,8 @@ def read(config, limit, mode="projects", status_column=None, table="PROJ", optio
         check(lib, lib.SQLDriverConnect(dbc, None, connection.encode(), -3, out, len(out), C.byref(size), 0), 'Aanmelden bij HFSQL', 2, dbc)
         connected = True
         print('OK: aangemeld bij HFSQL.', flush=True)
+        if mode == 'version':
+            return version_info(lib, dbc), False
         print('Stap 6: leesopdracht voorbereiden...', flush=True)
         check(lib, lib.SQLAllocHandle(3, dbc, C.byref(stmt)), 'Query aanmaken', 2, dbc)
         names = FIELDS
@@ -377,7 +394,7 @@ def save(path, payload):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
-    parser.add_argument('--mode', choices=('projects', 'databases', 'tables', 'columns', 'audit', 'statuses', 'portal'), default='projects')
+    parser.add_argument('--mode', choices=('projects', 'databases', 'tables', 'columns', 'audit', 'statuses', 'portal', 'version'), default='projects')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--config', default='/data/connection.json')
     parser.add_argument('--output')
@@ -413,6 +430,10 @@ def main():
         driver_check()
         return
     config = json.loads(Path(args.config).read_text())
+    if args.mode == 'version':
+        versions, _ = read(config, 1, 'version')
+        print(json.dumps(versions))
+        return
     if args.mode == 'columns':
         table = args.table or 'PROJ'
         columns, _ = read(config, 2000, 'columns', table=table)

@@ -1,0 +1,13 @@
+[Unit]
+Description=Compare WARCO production and replica HFSQL builds
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=loxberry
+WorkingDirectory=/opt/loxberry/plenion-reader
+ExecStart=/usr/bin/python3 /opt/loxberry/plenion-reader/maintain_hfsql_replica.py --config /opt/loxberry/plenion-reader/data/hfsql-maintenance.json
+SuccessExitStatus=2
+TimeoutStartSec=240
+NoNewPrivileges=true
